@@ -15,8 +15,9 @@ import { exportBackup, importBackup, exportCSV } from '../sheets/backup.js';
 import { connectDrive, disconnectDrive, backupNowToDrive, restoreFromDriveFlow, changeRecoveryKey } from '../sheets/cloud.js';
 import { setupPin, confirmPin } from '../sheets/lockscreen.js';
 import { hasBackupKey } from '../../data/cloudbackup.js';
+import { openHealthCheck, healthIssues } from '../sheets/health.js';
 
-export const APP_VERSION = '1.1.2';
+export const APP_VERSION = '1.2.0';
 
 let lockInfo = { enabled: false, pinLength: 6, autoLockMs: 60_000, biometric: false };
 let faceIdAvailable = false;
@@ -60,6 +61,7 @@ const screen = {
     const autoLockLabel = lock.AUTO_LOCK_OPTIONS.find((o) => o.id === lockInfo.autoLockMs)?.label || '1 分钟';
     const freqLabel = BACKUP_FREQS.find((f) => f.id === s.backupFreq)?.label || '每周';
     const drive = s.backupDest === 'gdrive';
+    const issues = demo ? [] : healthIssues();
 
     return html`
       <header class="screen__header">
@@ -98,6 +100,7 @@ const screen = {
         <ul class="list">
           ${row({ action: 'categories', glyph: 'list', color: 'orange', title: '类别', sub: '排序、改名、新增' })}
           ${row({ action: 'recurring', glyph: 'subscriptions', color: 'cyan', title: '固定项目', sub: '房租、月费、订阅、薪水', value: activeRec ? `${activeRec} 个` : '' })}
+          ${row({ action: 'health', glyph: 'check', color: 'green', title: '资料检查', sub: '找出重复、漏记和不合理的记录', value: issues.length ? `${issues.length} 项` : '没有问题' })}
           ${row({ action: 'reminder', glyph: 'bell', color: 'red', title: '每日提醒', sub: '用 iPhone 自带功能，免费又安全' })}
           ${!isStandalone() ? row({ action: 'install', glyph: 'add-home', color: 'gray', title: '添加到主屏幕' }) : ''}
         </ul>
@@ -201,6 +204,7 @@ const screen = {
       case 'categories': openCategoryManager(); break;
       case 'recurring': openRecurringManager(); break;
       case 'reminder': openReminderGuide(); break;
+      case 'health': openHealthCheck(); break;
       case 'install': openInstallGuide(); break;
       case 'autolock': {
         const v = await openChoiceSheet({ title: '自动上锁', options: lock.AUTO_LOCK_OPTIONS, value: lockInfo.autoLockMs, footer: '离开 App（切到别的 App 或锁上手机）超过这个时间，回来时需要重新解锁。' });

@@ -11,6 +11,7 @@ import { openInstallGuide, isStandalone, isIOS } from '../sheets/guides.js';
 import { openBackupSheet, exportBackup } from '../sheets/backup.js';
 import { backupNowToDrive } from '../sheets/cloud.js';
 import { backupDue } from '../../core/settings.js';
+import { openHealthCheck, healthIssues } from '../sheets/health.js';
 
 const BACKUP_NUDGE_DAYS = 30;
 
@@ -74,6 +75,7 @@ const screen = {
     if (e.target.closest('[data-open-plan]')) openPlanSheet();
     else if (e.target.closest('[data-open-install]')) openInstallGuide();
     else if (e.target.closest('[data-open-backup]')) openBackupSheet();
+    else if (e.target.closest('[data-open-health]')) openHealthCheck();
     else if (e.target.closest('[data-backup-now]')) {
       if (ctx.state.settings.backupDest === 'gdrive') backupNowToDrive({ interactive: true });
       else exportBackup();
@@ -87,6 +89,15 @@ function banners(state, demo) {
     out.push(html`<button type="button" class="banner" data-open-install>
       <span class="banner__icon">${icon('add-home')}</span>
       <span class="banner__text"><strong>添加到主屏幕</strong><span>全屏使用、离线可用，资料也更安全</span></span>
+      ${icon('chevron-right', 'banner__chevron')}
+    </button>`);
+  }
+  // Only findings that very likely skew the numbers get a banner; the rest wait in 设置 → 资料检查.
+  const warn = demo ? 0 : healthIssues().filter((i) => i.level === 'warn').length;
+  if (warn) {
+    out.push(html`<button type="button" class="banner banner--warn" data-open-health>
+      <span class="banner__icon">${icon('warning')}</span>
+      <span class="banner__text"><strong>资料检查发现 ${warn} 个可能的问题</strong><span>例如重复记录，可能让分析不准确</span></span>
       ${icon('chevron-right', 'banner__chevron')}
     </button>`);
   }
