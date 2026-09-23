@@ -27,13 +27,14 @@ const screen = {
     const { transactions: txs, categories, settings } = state;
     const cats = categoryMap(categories);
     const s = monthSummary(txs, ym, categories);
-    const ev = evaluateMonth({ txs, ym, categories, profile: settings.profile, today, recurring: state.recurring, startDate: trackingStart(settings, txs) });
-    const cmp = compareMonths(txs, ym, categories);
+    const since = trackingStart(settings, txs);
+    const ev = evaluateMonth({ txs, ym, categories, profile: settings.profile, today, recurring: state.recurring, startDate: since });
+    const cmp = compareMonths(txs, ym, categories, since);
     const insights = buildInsights({ txs, ym, categories, profile: settings.profile, settings, today, recurring: state.recurring });
     const rows = trend(txs, ym, 6);
     const tIdx = ui.trendIndex ?? rows.length - 1;
     const plan = dailyBudget({ txs, settings, recurring: state.recurring, today: ym === current ? today : `${ym}-01` });
-    const rw = runway({ txs, currentSavings: settings.currentSavings, today });
+    const rw = runway({ txs, currentSavings: settings.currentSavings, today, since });
     const cat = (id) => cats.get(id) || unknownCategory();
     const housing = HOUSING_OPTIONS.find((o) => o.id === ev.profile.housing)?.label;
     const transport = TRANSPORT_OPTIONS.find((o) => o.id === ev.profile.transport)?.label;
@@ -113,7 +114,7 @@ const screen = {
           ${groupSplit(s)}
         </section>` : ''}
 
-      ${cmp.previous.expense > 0 || cmp.current.expense > 0 ? html`
+      ${cmp.comparable && (cmp.previous.expense > 0 || cmp.current.expense > 0) ? html`
         <section class="section">
           <div class="section__header">
             <h2 class="section__title">与${monthLabel(cmp.prevYm, false)}相比</h2>

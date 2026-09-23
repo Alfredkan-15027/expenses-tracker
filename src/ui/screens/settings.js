@@ -16,7 +16,7 @@ import { connectDrive, disconnectDrive, backupNowToDrive, restoreFromDriveFlow, 
 import { setupPin, confirmPin } from '../sheets/lockscreen.js';
 import { hasBackupKey } from '../../data/cloudbackup.js';
 
-export const APP_VERSION = '1.1.1';
+export const APP_VERSION = '1.1.2';
 
 let lockInfo = { enabled: false, pinLength: 6, autoLockMs: 60_000, biometric: false };
 let faceIdAvailable = false;
