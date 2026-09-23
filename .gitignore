@@ -1,0 +1,13 @@
+﻿# Local only — never published
+.dev/
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+# Personal backups / exports must never be committed
+expenses-tracker-backup-*.json
+expenses-*.csv
+# Local tool config
+.claude/
+# Local preview page
+/preview*.html

@@ -1,0 +1,16 @@
+{
+  "name": "expenses-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Personal expense tracker PWA — data stays on the device.",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "test": "node --test \"tests/*.test.mjs\"",
+    "check:codex": "node scripts/check-codex-scope.mjs",
+    "check:security": "node scripts/security-audit.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
