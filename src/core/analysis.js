@@ -150,8 +150,10 @@ export function trend(txs, endYm, n = 6) {
 }
 
 /** Category comparison between month ym and the previous month. */
-export function compareMonths(txs, ym, categories) {
+export function compareMonths(txs, ym, categories, since = '') {
   const prevYm = addMonths(ym, -1);
+  // A month before tracking started only holds stray entries — comparing with it is meaningless.
+  const comparable = !since || prevYm >= monthOf(since);
   const cur = monthSummary(txs, ym, categories);
   const prev = monthSummary(txs, prevYm, categories);
   const ids = new Set([...cur.byCategory.keys(), ...prev.byCategory.keys()]);
@@ -161,7 +163,7 @@ export function compareMonths(txs, ym, categories) {
     return { categoryId: id, current: a, previous: b, delta: a - b, ratio: b > 0 ? (a - b) / b : null };
   }).sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
   return {
-    ym, prevYm, current: cur, previous: prev, rows,
+    ym, prevYm, current: cur, previous: prev, rows, comparable,
     delta: cur.expense - prev.expense,
     ratio: prev.expense > 0 ? (cur.expense - prev.expense) / prev.expense : null,
   };
@@ -258,10 +260,12 @@ function partialStatus(amount, range, elapsed, categoryId) {
 }
 
 /** Personal runway in months: current savings ÷ average monthly spending (last up-to-3 complete months). */
-export function runway({ txs, currentSavings, today }) {
+export function runway({ txs, currentSavings, today, since = '' }) {
   if (!currentSavings || currentSavings <= 0) return null;
   const ym = monthOf(today);
-  const months = [1, 2, 3].map((i) => addMonths(ym, -i));
+  // Only complete months that were fully tracked (from the first day of tracking on).
+  const firstFull = !since ? '' : dayOf(since) === 1 ? monthOf(since) : addMonths(monthOf(since), 1);
+  const months = [1, 2, 3].map((i) => addMonths(ym, -i)).filter((m) => !firstFull || m >= firstFull);
   const totals = months.map((m) => monthSummary(txs, m).expense).filter((v) => v > 0);
   let avg;
   let basis;
@@ -303,7 +307,7 @@ export function quickPicks(txs, today, limit = 6) {
  */
 export function buildInsights({ txs, ym, categories, profile, settings, today, recurring = [] }) {
   const ev = evaluateMonth({ txs, ym, categories, profile, today, recurring, startDate: trackingStart(settings, txs) });
-  const cmp = compareMonths(txs, ym, categories);
+  const cmp = compareMonths(txs, ym, categories, trackingStart(settings, txs));
   const s = ev.summary;
   const cats = ev.cats;
   const name = (id) => cats.get(id)?.name || '未分类';
@@ -358,7 +362,7 @@ export function buildInsights({ txs, ym, categories, profile, settings, today, r
   }
 
   // 4. Month-over-month change
-  if (cmp.previous.expense > 0) {
+  if (cmp.comparable && cmp.previous.expense > 0) {
     const up = cmp.delta > 0;
     const biggest = cmp.rows[0];
     let body = `总支出比上个月${up ? '多' : '少'} ${formatMoney(Math.abs(cmp.delta), { round: true })}`;
