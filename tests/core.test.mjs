@@ -259,3 +259,19 @@ test('recurring: an entry already typed in this month is not logged again', () =
   assert.equal(generateDue([r], '2026-09-28', id).created.length, 0);
   assert.equal(generateDue([r], '2026-10-28', id).created.length, 1);
 });
+
+test('a stray entry in the month before tracking does not drive runway or the monthly comparison', () => {
+  const settings = sanitizeSettings({ expectedIncome: 500000, startDate: '2026-09-23' });
+  const txs = [
+    tx('2026-08-30', 2830, 'subscriptions', { recurringId: 'r' }), // one fixed-item entry dated in August
+    tx('2026-09-01', 100000, 'food'), tx('2026-09-05', 100000, 'food'), tx('2026-09-12', 100000, 'food'),
+  ];
+  const since = trackingStart(settings, txs);
+  assert.equal(since, '2026-09-01');
+  const rw = runway({ txs, currentSavings: 118800, today: '2026-09-23', since });
+  assert.ok(rw.months < 2, `runway ${rw.months} months`); // not 42 months from August's RM 28
+  assert.equal(compareMonths(txs, '2026-09', DEFAULT_CATEGORIES, since).comparable, false);
+  assert.equal(compareMonths(txs, '2026-10', DEFAULT_CATEGORIES, since).comparable, true);
+  const ins = buildInsights({ txs, ym: '2026-09', categories: DEFAULT_CATEGORIES, profile: {}, settings, today: '2026-09-23' });
+  assert.ok(!ins.some((i) => i.title === '与上月相比'));
+});
