@@ -5,17 +5,17 @@ import { MAX_CENTS } from './money.js';
 import { sanitizeSettings } from './settings.js';
 
 export const BACKUP_APP = 'expenses-tracker';
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2; // v2 adds holdings / investFlows / valuations
 const MAX_ROWS = 200_000;
 const GROUPS = ['need', 'want', 'growth', 'business', 'other'];
 const TYPES = ['expense', 'income'];
 
-export function buildBackup({ transactions, categories, recurring, settings }, now = Date.now()) {
+export function buildBackup({ transactions, categories, recurring, settings, holdings = [], investFlows = [], valuations = [] }, now = Date.now()) {
   return {
     app: BACKUP_APP,
     version: BACKUP_VERSION,
     exportedAt: new Date(now).toISOString(),
-    data: { transactions, categories, recurring, settings },
+    data: { transactions, categories, recurring, settings, holdings, investFlows, valuations },
   };
 }
 
@@ -72,6 +72,37 @@ function cleanRecurring(r) {
   };
 }
 
+const HOLDING_KIND_IDS = ['stock', 'etf', 'fund', 'fixed', 'reit', 'crypto', 'other'];
+
+function cleanHolding(h, i) {
+  if (!h || typeof h !== 'object' || !isId(h.id)) return null;
+  const name = str(h.name, 30).trim();
+  if (!name) return null;
+  return {
+    id: h.id, name,
+    kind: HOLDING_KIND_IDS.includes(h.kind) ? h.kind : 'other',
+    note: str(h.note, 80),
+    archived: h.archived === true,
+    order: Number.isFinite(h.order) ? h.order : i,
+    createdAt: Number.isFinite(h.createdAt) ? h.createdAt : 0,
+  };
+}
+
+function cleanFlow(f) {
+  if (!f || typeof f !== 'object' || !isId(f.id) || !isId(f.holdingId) || !['in', 'out'].includes(f.type)
+    || !amountOk(f.amount) || !isValidISODate(f.date)) return null;
+  return {
+    id: f.id, holdingId: f.holdingId, type: f.type, amount: f.amount, date: f.date,
+    note: str(f.note, 120), createdAt: Number.isFinite(f.createdAt) ? f.createdAt : 0,
+  };
+}
+
+function cleanValuation(v) {
+  if (!v || typeof v !== 'object' || !isId(v.id) || !isId(v.holdingId) || !isValidISODate(v.date)
+    || !Number.isSafeInteger(v.value) || v.value < 0 || v.value > MAX_CENTS) return null;
+  return { id: v.id, holdingId: v.holdingId, value: v.value, date: v.date, createdAt: Number.isFinite(v.createdAt) ? v.createdAt : 0 };
+}
+
 function cleanList(list, fn) {
   if (!Array.isArray(list)) return { items: [], dropped: 0 };
   const items = [];
@@ -104,6 +135,10 @@ export function parseBackup(text) {
   const tx = cleanList(obj.data.transactions, cleanTransaction);
   const cats = cleanList(obj.data.categories, cleanCategory);
   const rec = cleanList(obj.data.recurring, cleanRecurring);
+  const hold = cleanList(obj.data.holdings, cleanHolding);
+  const holdingIds = new Set(hold.items.map((h) => h.id));
+  const flows = cleanList(obj.data.investFlows, (f) => { const c = cleanFlow(f); return c && holdingIds.has(c.holdingId) ? c : null; });
+  const vals = cleanList(obj.data.valuations, (v) => { const c = cleanValuation(v); return c && holdingIds.has(c.holdingId) ? c : null; });
   if (!cats.items.length) return { ok: false, error: '备份文件里没有类别资料，无法还原。' };
   return {
     ok: true,
@@ -112,9 +147,12 @@ export function parseBackup(text) {
       categories: cats.items,
       recurring: rec.items,
       settings: sanitizeSettings(obj.data.settings),
+      holdings: hold.items,
+      investFlows: flows.items,
+      valuations: vals.items,
     },
     exportedAt: typeof obj.exportedAt === 'string' ? obj.exportedAt.slice(0, 40) : '',
-    dropped: tx.dropped + cats.dropped + rec.dropped,
+    dropped: tx.dropped + cats.dropped + rec.dropped + hold.dropped + flows.dropped + vals.dropped,
   };
 }
 
