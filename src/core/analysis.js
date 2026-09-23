@@ -67,6 +67,24 @@ export function upcomingRecurring(recurring = [], today) {
 }
 
 /**
+ * First day of tracking: the setup date — or, when past spending was typed in after setup (entries on at
+ * least 3 different days before it), the earliest of those entries. One or two catch-up entries (e.g. this
+ * month's rent, already paid) keep the setup date. Entries made by fixed items never count.
+ */
+export function trackingStart(settings, txs) {
+  const setup = settings?.startDate || '';
+  if (!setup) return '';
+  const days = new Set();
+  let earliest = setup;
+  for (const t of txs) {
+    if (t.recurringId || t.date >= setup) continue;
+    days.add(t.date);
+    if (t.date < earliest) earliest = t.date;
+  }
+  return days.size >= 3 ? earliest : setup;
+}
+
+/**
  * Monthly plan: how much can be spent this month and today.
  * budget = income basis − savings target; income basis = expected income, or actual income if not set.
  */
@@ -82,7 +100,7 @@ export function dailyBudget({ txs, settings, recurring = [], today }) {
   const hasPlan = incomeBasis > 0;
   let budget = Math.max(0, incomeBasis - target);
   // Started tracking mid-month: only the remaining part of this month's budget applies.
-  const start = settings.startDate;
+  const start = trackingStart(settings, txs);
   const prorated = !!start && monthOf(start) === ym && dayOf(start) > 1 && expected > 0;
   if (prorated) budget = Math.round((budget * (dim - dayOf(start) + 1)) / dim);
 
@@ -284,7 +302,7 @@ export function quickPicks(txs, today, limit = 6) {
  * Each: { tone: 'good'|'warn'|'bad'|'info', icon, title, body }
  */
 export function buildInsights({ txs, ym, categories, profile, settings, today, recurring = [] }) {
-  const ev = evaluateMonth({ txs, ym, categories, profile, today, recurring, startDate: settings.startDate });
+  const ev = evaluateMonth({ txs, ym, categories, profile, today, recurring, startDate: trackingStart(settings, txs) });
   const cmp = compareMonths(txs, ym, categories);
   const s = ev.summary;
   const cats = ev.cats;

@@ -43,16 +43,25 @@ export function generateDue(recurring, today, newId, now = Date.now()) {
 
 /**
  * Initial state for a new recurring item.
- * If this month's due day already passed, `includeThisMonth` decides whether to log it now.
+ * includeThisMonth: log this month too (now if the day already passed, otherwise on the day). Turn it off when
+ * this month's payment is already recorded by hand, so it is not counted twice.
  */
-export function newRecurring({ id, type, amount, categoryId, note, day, business, includeThisMonth }, today) {
+export function newRecurring({ id, type, amount, categoryId, note, day, business, includeThisMonth = true }, today) {
   const cur = monthOf(today);
-  const duePassed = dateInMonth(cur, day) <= today;
   return {
     id, type, amount, categoryId, note: note || '', day, business: !!business, active: true,
     startMonth: cur,
-    lastMonth: duePassed && !includeThisMonth ? cur : null,
+    lastMonth: includeThisMonth ? null : cur,
   };
+}
+
+/** A transaction entered by hand this month that looks like the same fixed item (same kind, category, ~amount). */
+export function findManualMatch(transactions, { type, categoryId, amount }, today) {
+  if (!amount) return null;
+  const cur = monthOf(today);
+  const tolerance = Math.max(100, Math.round(amount * 0.05));
+  return transactions.find((t) => !t.recurringId && t.type === type && t.categoryId === categoryId
+    && monthOf(t.date) === cur && Math.abs(t.amount - amount) <= tolerance) || null;
 }
 
 export function nextDueDate(r, today) {
