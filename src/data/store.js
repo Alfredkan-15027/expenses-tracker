@@ -14,6 +14,9 @@ export const state = {
   categories: [],
   recurring: [],
   settings: { ...DEFAULT_SETTINGS },
+  holdings: [],
+  investFlows: [],
+  valuations: [],
 };
 
 const listeners = new Set();
@@ -33,22 +36,32 @@ let persist = {
   delCat: (ids) => db.deleteMany('categories', ids),
   putRec: (items) => db.putMany('recurring', items),
   delRec: (ids) => db.deleteMany('recurring', ids),
+  putHold: (items) => db.putMany('holdings', items),
+  delHold: (ids) => db.deleteMany('holdings', ids),
+  putFlow: (items) => db.putMany('investFlows', items),
+  delFlow: (ids) => db.deleteMany('investFlows', ids),
+  putVal: (items) => db.putMany('valuations', items),
+  delVal: (ids) => db.deleteMany('valuations', ids),
   settings: (s) => db.setKV('settings', s),
   replaceAll: (data) => db.replaceAll(data),
   clearAll: () => db.clearAll(),
 };
 
 export async function init({ demo = false } = {}) {
-  state.demo = demo;
+  state.demo = !!demo;
   if (demo) {
     const noop = async () => {};
     persist = Object.fromEntries(Object.keys(persist).map((k) => [k, noop]));
     const { buildDemoData } = await import('./demo.js');
-    Object.assign(state, buildDemoData(todayISO()));
+    Object.assign(state, buildDemoData(todayISO(), demo));
   } else {
-    const [transactions, categories, recurring, settings] = await Promise.all([
+    const [transactions, categories, recurring, settings, holdings, investFlows, valuations] = await Promise.all([
       db.getAll('transactions'), db.getAll('categories'), db.getAll('recurring'), db.getKV('settings'),
+      db.getAll('holdings'), db.getAll('investFlows'), db.getAll('valuations'),
     ]);
+    state.holdings = holdings;
+    state.investFlows = investFlows;
+    state.valuations = valuations;
     state.transactions = transactions;
     state.recurring = recurring;
     state.settings = sanitizeSettings(settings || DEFAULT_SETTINGS);
@@ -210,11 +223,15 @@ export async function deleteRecurring(id) {
 // ── Backup / reset ──────────────────────────────────────────────────────────
 
 export async function replaceAllData(data) {
-  await persist.replaceAll(data);
-  state.transactions = data.transactions;
-  state.categories = data.categories;
-  state.recurring = data.recurring;
-  state.settings = sanitizeSettings(data.settings);
+  const full = { holdings: [], investFlows: [], valuations: [], ...data };
+  await persist.replaceAll(full);
+  state.transactions = full.transactions;
+  state.categories = full.categories;
+  state.recurring = full.recurring;
+  state.holdings = full.holdings;
+  state.investFlows = full.investFlows;
+  state.valuations = full.valuations;
+  state.settings = sanitizeSettings(full.settings);
   emit('restore');
 }
 
@@ -222,6 +239,9 @@ export async function eraseEverything() {
   await persist.clearAll();
   state.transactions = [];
   state.recurring = [];
+  state.holdings = [];
+  state.investFlows = [];
+  state.valuations = [];
   state.categories = DEFAULT_CATEGORIES.map((c) => ({ ...c }));
   state.settings = { ...DEFAULT_SETTINGS };
   await persist.putCat(state.categories);
@@ -234,5 +254,91 @@ export function snapshot() {
     categories: state.categories,
     recurring: state.recurring,
     settings: state.settings,
+    holdings: state.holdings,
+    investFlows: state.investFlows,
+    valuations: state.valuations,
   };
+}
+
+// ── Investments ─────────────────────────────────────────────────────────────
+
+export function saveInvestPlan(patch) {
+  return saveSettings({ invest: { ...state.settings.invest, ...patch } });
+}
+
+export async function saveHolding(h) {
+  const exists = state.holdings.find((x) => x.id === h.id);
+  let next;
+  if (exists) {
+    next = { ...exists, ...h };
+    state.holdings = state.holdings.map((x) => (x.id === h.id ? next : x));
+  } else {
+    const maxOrder = Math.max(-1, ...state.holdings.map((x) => x.order));
+    next = { archived: false, note: '', kind: 'other', ...h, id: h.id || newId(), order: maxOrder + 1, createdAt: Date.now() };
+    state.holdings.push(next);
+  }
+  next.name = String(next.name || '').trim().slice(0, 30);
+  await persist.putHold([next]);
+  emit('invest');
+  return next;
+}
+
+/** Holdings with history are archived so the performance record stays intact; empty ones are deleted. */
+export async function removeHolding(id) {
+  const h = state.holdings.find((x) => x.id === id);
+  if (!h) return;
+  const used = state.investFlows.some((f) => f.holdingId === id) || state.valuations.some((v) => v.holdingId === id);
+  if (used) {
+    await saveHolding({ ...h, archived: true });
+  } else {
+    state.holdings = state.holdings.filter((x) => x.id !== id);
+    await persist.delHold([id]);
+    emit('invest');
+  }
+}
+
+export async function addFlow({ holdingId, type, amount, date, note }) {
+  const f = {
+    id: newId(), holdingId, type: type === 'out' ? 'out' : 'in', amount, date: date || todayISO(),
+    note: String(note || '').trim().slice(0, 120), createdAt: Date.now(),
+  };
+  state.investFlows.push(f);
+  await persist.putFlow([f]);
+  emit('invest');
+  return f;
+}
+
+export async function deleteFlow(id) {
+  const f = state.investFlows.find((x) => x.id === id);
+  if (!f) return null;
+  state.investFlows = state.investFlows.filter((x) => x.id !== id);
+  await persist.delFlow([id]);
+  emit('invest');
+  return f;
+}
+
+/** Record market values for several holdings at once: [{ holdingId, value }]. */
+export async function addValuations(entries, date = todayISO()) {
+  const now = Date.now();
+  const items = entries.map((e, k) => ({ id: newId(), holdingId: e.holdingId, value: e.value, date, createdAt: now + k }));
+  state.valuations.push(...items);
+  await persist.putVal(items);
+  emit('invest');
+  return items;
+}
+
+export async function deleteValuation(id) {
+  const v = state.valuations.find((x) => x.id === id);
+  if (!v) return null;
+  state.valuations = state.valuations.filter((x) => x.id !== id);
+  await persist.delVal([id]);
+  emit('invest');
+  return v;
+}
+
+/** Put a deleted investment record back (undo). */
+export async function restoreInvestRecord(kind, item) {
+  if (kind === 'flow') { state.investFlows.push(item); await persist.putFlow([item]); }
+  if (kind === 'valuation') { state.valuations.push(item); await persist.putVal([item]); }
+  emit('invest');
 }

@@ -1,8 +1,8 @@
 // Minimal IndexedDB wrapper. Everything stays on this device.
 
 const DB_NAME = 'expenses-tracker';
-const DB_VERSION = 1;
-export const STORES = ['transactions', 'categories', 'recurring', 'kv'];
+const DB_VERSION = 2; // v2: investment stores
+export const STORES = ['transactions', 'categories', 'recurring', 'kv', 'holdings', 'investFlows', 'valuations'];
 
 let dbPromise = null;
 
@@ -19,6 +19,9 @@ function open() {
       if (!db.objectStoreNames.contains('categories')) db.createObjectStore('categories', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('recurring')) db.createObjectStore('recurring', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+      for (const name of ['holdings', 'investFlows', 'valuations']) {
+        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
+      }
     };
     req.onsuccess = () => {
       const db = req.result;
@@ -26,7 +29,9 @@ function open() {
       resolve(db);
     };
     req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error('数据库被另一个分页占用，请关闭其他分页后重试。'));
+    // An older copy of the app still holds the database open: it closes itself on `versionchange`,
+    // after which the upgrade continues and onsuccess fires — so just wait.
+    req.onblocked = () => {};
   });
   return dbPromise;
 }
@@ -88,7 +93,7 @@ export async function deleteMany(store, ids) {
 }
 
 /** Replace the whole database content atomically (used by restore). */
-export async function replaceAll({ transactions, categories, recurring, settings }) {
+export async function replaceAll({ transactions, categories, recurring, settings, holdings = [], investFlows = [], valuations = [] }) {
   const db = await open();
   const tx = db.transaction(STORES, 'readwrite');
   const put = (name, items) => {
@@ -99,6 +104,9 @@ export async function replaceAll({ transactions, categories, recurring, settings
   put('transactions', transactions);
   put('categories', categories);
   put('recurring', recurring);
+  put('holdings', holdings);
+  put('investFlows', investFlows);
+  put('valuations', valuations);
   tx.objectStore('kv').put(settings, 'settings');
   return done(tx);
 }

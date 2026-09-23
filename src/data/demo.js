@@ -26,7 +26,8 @@ const DAILY = [
   ['learning', '书', 30, 80, 0.02],
 ];
 
-export function buildDemoData(today) {
+/** variant '1': investing already started · variant '2': still preparing (no holdings yet). */
+export function buildDemoData(today, variant = '1') {
   const rand = rng(20260923);
   const cur = monthOf(today);
   const transactions = [];
@@ -71,7 +72,33 @@ export function buildDemoData(today) {
     }
   }
 
+  // Investments (variant 1): plan started ~14 months ago with yearly contributions.
+  const holdings = [];
+  const investFlows = [];
+  const valuations = [];
+  if (variant !== '2') {
+    const start = dateInMonth(addMonths(cur, -14), 3);
+    const second = dateInMonth(addMonths(cur, -2), 3);
+    const recent = dateInMonth(addMonths(cur, -1), 15);
+    const mid = dateInMonth(addMonths(cur, -8), 3);
+    const H = [
+      { id: 'demo-h1', name: '全球指数 ETF', kind: 'etf', buy: 60000, v1: 63100, v2: 128400 },
+      { id: 'demo-h2', name: '蓝筹股组合', kind: 'stock', buy: 30000, v1: 31900, v2: 62300 },
+      { id: 'demo-h3', name: '定存', kind: 'fixed', buy: 15000, v1: 15260, v2: 31070 },
+    ];
+    H.forEach((h, i) => {
+      holdings.push({ id: h.id, name: h.name, kind: h.kind, note: '', archived: false, order: i, createdAt: i });
+      investFlows.push({ id: `${h.id}-f1`, holdingId: h.id, type: 'in', amount: h.buy * 100, date: start, note: '第一年投入', createdAt: 10 + i });
+      investFlows.push({ id: `${h.id}-f2`, holdingId: h.id, type: 'in', amount: h.buy * 100, date: second, note: '第二年投入', createdAt: 30 + i });
+      valuations.push({ id: `${h.id}-v1`, holdingId: h.id, value: h.v1 * 100, date: mid, createdAt: 20 + i });
+      valuations.push({ id: `${h.id}-v2`, holdingId: h.id, value: h.v2 * 100, date: recent, createdAt: 40 + i });
+    });
+  }
+
   return {
+    holdings,
+    investFlows,
+    valuations,
     transactions,
     categories: DEFAULT_CATEGORIES.map((c) => ({ ...c })),
     recurring: [
