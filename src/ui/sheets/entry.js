@@ -1,6 +1,7 @@
 // "记一笔" — the core logging flow: amount on a big keypad, then one tap on a category saves.
 import { html, icon, catIcon, mount } from '../html.js';
 import { openSheet, toast, confirmDialog } from '../overlays.js';
+import { openChoiceSheet } from './plan.js';
 import { haptic } from '../haptics.js';
 import { state, addTransaction, updateTransaction, deleteTransaction, restoreTransaction } from '../../data/store.js';
 import { activeCategories, categoryMap } from '../../core/categories.js';
@@ -15,10 +16,11 @@ const MAX_INT_DIGITS = 8;
  */
 export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}) {
   const editing = !!tx;
+  const startType = tx?.type || type;
   const s = {
-    type: tx?.type || type,
+    type: startType,
     amount: tx ? centsToInput(tx.amount) : '',
-    categoryId: tx?.categoryId || null,
+    categoryId: tx?.categoryId || (startType === 'income' ? lastIncomeCategory() : null),
     note: tx?.note || '',
     date: tx?.date || date || todayISO(),
     business: tx?.business && tx.categoryId !== 'business' ? true : false,
@@ -46,11 +48,17 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
   const origClose = sheet.close;
   sheet.close = (r) => { window.removeEventListener('keydown', onKey); return origClose(r); };
 
+  function hintText() {
+    if (s.type === 'income') return s.categoryId ? '确认金额与类型后，点「保存」' : '输入金额，再选择收入类型';
+    if (editing) return '选好类别后，点右上角「保存」';
+    return s.amount ? '点一个类别就完成' : '输入金额，再点类别就完成';
+  }
+
   function render() {
     const cats = activeCategories(state.categories, s.type);
-    const hint = editing
-      ? '选好类别后，点右上角「保存」'
-      : s.amount ? '点一个类别就完成' : '输入金额，再点类别就完成';
+    const hint = hintText();
+    const incomeCat = s.type === 'income' ? cats.find((c) => c.id === s.categoryId) : null;
+    root.dataset.kind = s.type;
     sheet.el.querySelectorAll('.entry__type [data-type]').forEach((b) => {
       const on = b.dataset.type === s.type;
       b.classList.toggle('is-active', on);
@@ -75,16 +83,23 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
             ${icon('business')}<span>创业</span>
           </button>` : ''}
       </div>
+      ${s.type === 'income' ? html`
+        <button type="button" class="type-picker ${incomeCat ? 'is-set' : ''}" data-pick-type aria-haspopup="dialog">
+          ${incomeCat ? catIcon(incomeCat, 'cat-icon--xs') : icon('list')}
+          <span class="type-picker__label">类型${incomeCat ? html`<span class="type-picker__value">：${incomeCat.name}</span>` : ''}</span>
+          ${icon('chevron-down', 'type-picker__chevron')}
+        </button>` : html`
       <div class="cat-grid" role="group" aria-label="类别">
         ${cats.map((c) => html`
           <button type="button" class="cat-grid__item ${s.categoryId === c.id ? 'is-selected' : ''}" data-cat="${c.id}" aria-pressed="${s.categoryId === c.id}">
             ${catIcon(c)}<span class="cat-grid__label">${c.name}</span>
           </button>`)}
-      </div>
+      </div>`}
       <div class="keypad" role="group" aria-label="数字键盘">
         ${['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0'].map((k) => html`<button type="button" class="keypad__key" data-key="${k}">${k}</button>`)}
         <button type="button" class="keypad__key keypad__key--fn" data-key="del" aria-label="删除">${icon('backspace')}</button>
       </div>
+      ${s.type === 'income' && !editing ? html`<button type="button" class="btn btn--primary btn--large btn--block entry__save" data-save>保存收入</button>` : ''}
       ${editing ? html`<button type="button" class="btn btn--plain btn--danger entry__delete" data-delete>${icon('trash')}删除这笔记录</button>` : ''}
     `);
   }
@@ -100,9 +115,7 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
     const box = root.querySelector('.amount-display');
     box.classList.toggle('is-empty', !s.amount);
     box.querySelector('.amount-display__value').textContent = amountText();
-    root.querySelector('.entry__hint').textContent = editing
-      ? '选好类别后，点右上角「保存」'
-      : s.amount ? '点一个类别就完成' : '输入金额，再点类别就完成';
+    root.querySelector('.entry__hint').textContent = hintText();
   }
 
   function press(k) {
@@ -144,9 +157,22 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
     const t = e.target.closest('[data-type]');
     if (t && t.dataset.type !== s.type) {
       s.type = t.dataset.type;
-      s.categoryId = null;
+      s.categoryId = s.type === 'income' ? lastIncomeCategory() : null;
       haptic();
       render();
+      return;
+    }
+
+    if (e.target.closest('[data-pick-type]')) {
+      haptic();
+      const cats = activeCategories(state.categories, 'income');
+      const picked = await openChoiceSheet({
+        title: '收入类型',
+        options: cats.map((c) => ({ id: c.id, label: c.name, hint: c.hint, cat: c })),
+        value: s.categoryId,
+        footer: '可以在「设置 → 类别 → 收入类别」新增或改名。',
+      });
+      if (picked) { s.categoryId = picked; render(); }
       return;
     }
 
@@ -187,7 +213,11 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
   async function save() {
     const cents = toCents(s.amount);
     if (!cents) { shake(); root.querySelector('.entry__hint').textContent = '先输入金额'; return; }
-    if (!s.categoryId) { haptic('error'); root.querySelector('.entry__hint').textContent = '请选择一个类别'; return; }
+    if (!s.categoryId) {
+      haptic('error');
+      root.querySelector('.entry__hint').textContent = s.type === 'income' ? '请先选择收入类型' : '请选择一个类别';
+      return;
+    }
     const data = { type: s.type, amount: cents, categoryId: s.categoryId, note: s.note, date: s.date, business: s.type === 'expense' && s.business };
     haptic('success');
     if (editing) {
@@ -207,6 +237,17 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
   }
 
   return sheet;
+}
+
+/** The income type used most recently (still active), so repeated income is one tap. */
+function lastIncomeCategory() {
+  const active = new Set(activeCategories(state.categories, 'income').map((c) => c.id));
+  let best = null;
+  for (const t of state.transactions) {
+    if (t.type !== 'income' || !active.has(t.categoryId)) continue;
+    if (!best || t.date > best.date || (t.date === best.date && t.createdAt > best.createdAt)) best = t;
+  }
+  return best?.categoryId || null;
 }
 
 /** One-tap logging from a quick pick chip. */

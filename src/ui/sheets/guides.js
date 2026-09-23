@@ -70,10 +70,11 @@ export function openPrivacySheet() {
     body: html`<div class="prose">
       <p class="callout callout--good">${icon('shield')}<span>你的所有记录只存在这台 iPhone 上，不会上传到任何服务器。</span></p>
       <ul class="tips">
-        <li><strong>没有账号、没有服务器、没有追踪。</strong>App 不会连接任何第三方服务，也不含广告或统计代码。</li>
+        <li><strong>没有账号、没有服务器、没有追踪。</strong>App 不含广告或统计代码。唯一会连接外部的，是你自己开启的 Google Drive 备份。</li>
         <li><strong>网址公开也没关系。</strong>别人打开同一个网址，只会看到一个全新的空白 App，看不到你的资料。</li>
-        <li><strong>可以加密码锁。</strong>在「设置 → 密码锁」开启后，每次打开或离开超过 1 分钟都需要输入密码。</li>
-        <li><strong>备份由你掌控。</strong>备份文件只会存到你选择的位置（例如 iCloud 云盘），请妥善保管。</li>
+        <li><strong>密码锁与 Face ID。</strong>在「设置 → 安全」开启 6 位密码、Face ID 和自动上锁时间；在 App 切换器里也看不到金额。</li>
+        <li><strong>Google Drive 备份是加密的。</strong>上传前先用只有你持有的 28 位恢复密钥加密（AES-256），存在只有这个 App 能读的隐藏资料夹，Google 和其他人都看不到内容。请保存好恢复密钥，换新手机还原时需要它。</li>
+        <li><strong>iCloud 备份由你掌控。</strong>备份文件只会存到你选择的位置，请妥善保管（这个文件没有加密）。</li>
       </ul>
       <h3>什么情况下资料会消失？</h3>
       <ul class="tips">

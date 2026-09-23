@@ -1,11 +1,11 @@
 // Small form sheets: monthly plan, single money value, single choice, text.
-import { html, icon } from '../html.js';
+import { html, icon, catIcon } from '../html.js';
 import { openSheet } from '../overlays.js';
 import { haptic } from '../haptics.js';
 import { state, saveSettings } from '../../data/store.js';
 import { centsToInput, formatMoney, toCents } from '../../core/money.js';
 
-function moneyField({ name, label, value, hint }) {
+export function moneyField({ name, label, value, hint }) {
   return html`<label class="field field--money">
     <span class="field__label">${label}</span>
     <span class="field__control">
@@ -16,7 +16,7 @@ function moneyField({ name, label, value, hint }) {
   </label>`;
 }
 
-function readMoney(input) {
+export function readMoney(input) {
   const v = input.value.trim();
   if (!v) return 0;
   return toCents(v);
@@ -132,6 +132,7 @@ export function openChoiceSheet({ title, options, value, footer = '' }) {
       size: 'auto',
       body: html`<ul class="list list--choices">
           ${options.map((o) => html`<li><button type="button" class="row row--choice ${o.id === value ? 'is-selected' : ''}" data-choice="${o.id}">
+            ${o.cat ? catIcon(o.cat) : ''}
             <span class="row__body"><span class="row__title">${o.label}</span>${o.hint ? html`<span class="row__subtitle">${o.hint}</span>` : ''}</span>
             ${o.id === value ? icon('check', 'row__check') : ''}
           </button></li>`)}
@@ -142,10 +143,48 @@ export function openChoiceSheet({ title, options, value, footer = '' }) {
         el.addEventListener('click', (e) => {
           const b = e.target.closest('[data-choice]');
           if (!b) return;
-          result = b.dataset.choice;
+          const opt = options.find((o) => String(o.id) === b.dataset.choice);
+          result = opt ? opt.id : b.dataset.choice;
           haptic();
           api.close();
         });
+      },
+    });
+  });
+}
+
+/** Edit a number (e.g. a percentage). Resolves with the number, or null when cancelled. */
+export function openNumberSheet({ title, label, value, suffix = '', hint = '', min = -Infinity, max = Infinity, decimals = 2 }) {
+  return new Promise((resolve) => {
+    let result = null;
+    openSheet({
+      title,
+      size: 'auto',
+      actions: html`<button type="button" class="btn btn--primary btn--small" data-save>保存</button>`,
+      body: html`<form class="form" novalidate>
+        <label class="field field--money"><span class="field__label">${label}</span>
+          <span class="field__control">
+            <input class="field__input" name="v" type="text" inputmode="decimal" autocomplete="off" value="${value ?? ''}" enterkeyhint="done">
+            ${suffix ? html`<span class="field__prefix">${suffix}</span>` : ''}
+          </span>
+          ${hint ? html`<span class="field__hint">${hint}</span>` : ''}
+        </label><p class="form__error" aria-live="polite"></p></form>`,
+      onClose: () => resolve(result),
+      onMount(el, api) {
+        const form = el.querySelector('form');
+        const save = () => {
+          const raw = form.v.value.trim().replace(/,/g, '');
+          const n = Number(raw);
+          if (!raw || !Number.isFinite(n) || n < min || n > max) {
+            haptic('error');
+            el.querySelector('.form__error').textContent = `请输入 ${min} 到 ${max} 之间的数字`;
+            return;
+          }
+          result = Math.round(n * 10 ** decimals) / 10 ** decimals;
+          api.close();
+        };
+        form.addEventListener('submit', (e) => { e.preventDefault(); save(); });
+        el.querySelector('[data-save]').addEventListener('click', save);
       },
     });
   });
