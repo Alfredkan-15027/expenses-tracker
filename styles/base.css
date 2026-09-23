@@ -1,0 +1,131 @@
+/* ==========================================================================
+   Base: reset, typography, page layout, utilities.   CODEX-EDITABLE.
+   ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--label);
+  font: var(--text-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+input, textarea, select { -webkit-user-select: text; user-select: text; }
+
+html.has-overlay, html.has-overlay body,
+html.is-locked, html.is-locked body { overflow: hidden; }
+
+h1, h2, h3, h4, p, ul, ol { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+strong { font-weight: 600; }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+button {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: inherit;
+  touch-action: manipulation;
+}
+button:disabled { cursor: default; opacity: 0.35; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+
+:focus { outline: none; }
+:focus-visible {
+  outline: 2.5px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
+.icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  display: inline-block;
+  vertical-align: -0.125em;
+}
+
+/* ── Page layout ────────────────────────────────────────────────────────── */
+
+.app { min-height: 100vh; }
+
+.screen {
+  padding: calc(var(--safe-top) + var(--navbar-h) - 8px) var(--gutter) calc(var(--tabbar-bottom) + var(--tabbar-h) + 40px);
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.screen:focus { outline: none; }
+.screen.is-entering { animation: screen-in var(--dur) var(--ease-out); }
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.screen__header { padding: 4px 4px 2px; }
+.large-title { font: var(--text-large-title); letter-spacing: 0.2px; }
+.eyebrow { font: var(--text-footnote); font-weight: 600; color: var(--label-2); margin-bottom: 2px; }
+
+.section { display: flex; flex-direction: column; gap: 8px; }
+.section + .section { margin-top: 8px; }
+.section__header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 0 4px; }
+.section__title { font: var(--text-title3); padding: 0 4px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.section__header .section__title { padding: 0; }
+.section__title--day { font: var(--text-headline); }
+.section__title--day span { font: var(--text-subhead); color: var(--label-2); }
+.section__hint { font: var(--text-footnote); color: var(--label-2); font-weight: 400; }
+.section__meta { font: var(--text-subhead); color: var(--label-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.section__meta--block { padding: 0 4px; }
+.section__meta.is-up { color: var(--warn-ink); }
+.section__meta.is-down { color: var(--good-ink); }
+.section__footer { font: var(--text-footnote); color: var(--label-2); padding: 0 16px; }
+.section__footer--center { text-align: center; padding-top: 8px; }
+
+.muted { color: var(--label-2); }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.noscript { padding: 40px 20px; text-align: center; }
+
+.haptic-proxy {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  left: -10px;
+  top: -10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
