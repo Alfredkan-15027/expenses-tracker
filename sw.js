@@ -2,7 +2,7 @@
 // Strategy: stale-while-revalidate — open instantly from cache, refresh files in the background,
 // so design updates (styles / icons) reach the phone on the next launch even without a version bump.
 
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.1.0';
 const CACHE = `expenses-tracker-${VERSION}`;
 
 const PRECACHE = [
@@ -23,13 +23,17 @@ const PRECACHE = [
   'src/core/backup.js',
   'src/core/benchmarks.js',
   'src/core/categories.js',
+  'src/core/crypto.js',
   'src/core/dates.js',
   'src/core/ids.js',
+  'src/core/invest.js',
   'src/core/money.js',
   'src/core/recurring.js',
   'src/core/settings.js',
+  'src/data/cloudbackup.js',
   'src/data/db.js',
   'src/data/demo.js',
+  'src/data/gdrive.js',
   'src/data/lock.js',
   'src/data/store.js',
   'src/ui/charts.js',
@@ -38,13 +42,16 @@ const PRECACHE = [
   'src/ui/overlays.js',
   'src/ui/screens/history.js',
   'src/ui/screens/insights.js',
+  'src/ui/screens/invest.js',
   'src/ui/screens/settings.js',
   'src/ui/screens/shared.js',
   'src/ui/screens/today.js',
   'src/ui/sheets/backup.js',
   'src/ui/sheets/categories.js',
+  'src/ui/sheets/cloud.js',
   'src/ui/sheets/entry.js',
   'src/ui/sheets/guides.js',
+  'src/ui/sheets/invest.js',
   'src/ui/sheets/lockscreen.js',
   'src/ui/sheets/onboarding.js',
   'src/ui/sheets/plan.js',

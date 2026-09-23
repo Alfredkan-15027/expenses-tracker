@@ -14,7 +14,12 @@ iOS 27 Liquid Glass style, with analysis tuned for a 24-year-old founder living 
 - **Personal vs business** — founder spending is tracked but kept out of the living-cost evaluation
 - **Monthly analysis** — KL 24yo founder benchmark (EPF Belanjawanku), per-category reasonable ranges,
   savings rate, needs/wants balance, month-over-month changes, 6-month trend, personal runway
-- **Safety** — optional passcode lock (salted PBKDF2 hash), JSON backup / restore, CSV export, strict CSP
+- **Investments** — RM 1.75M / 10-year plan: required yearly contribution at 8–10%, projection band, holdings,
+  money in/out, market value updates, money-weighted annual return (XIRR)
+- **Safety** — 6-digit passcode (salted PBKDF2 hash) with Face ID via a device passkey (WebAuthn) and adjustable auto-lock;
+  scheduled backups (daily / weekly / monthly) to iCloud via the share sheet, or to the app-private Google Drive
+  folder encrypted with AES-256-GCM (key derived from a 140-bit recovery key only the user holds); CSV export; strict CSP
+  (the only outside connection is the opt-in Google Drive backup)
 
 ## Project layout
 

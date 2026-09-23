@@ -52,9 +52,11 @@ npm run dev
 ```
 
 - 真实模式：<http://localhost:5173/>（第一次会出现引导页）
-- **演示模式（推荐做设计时用）**：<http://localhost:5173/?demo=1>，会载入 6 个月的吉隆坡生活示例资料，不会写入资料库
+- **演示模式（推荐做设计时用）**：<http://localhost:5173/?demo=1>，会载入 6 个月的吉隆坡生活示例资料，以及「已经开始投资」的投资资料，不会写入资料库
+- **演示模式 2**：<http://localhost:5173/?demo=2>，投资「准备阶段」（还没有持仓、显示开始条件卡片）
 - 用浏览器开发者工具把视窗设成 **390 × 844**（iPhone 15/16）与 **375 × 667**（iPhone SE），并分别检查 **浅色 / 深色模式**
-- 页面切换：`#/today`、`#/history`、`#/insights`、`#/settings`
+- 页面切换：`#/today`、`#/history`、`#/insights`、`#/invest`、`#/settings`
+- 记一笔（支出 / 收入）：点右下角 ＋，或 `?demo=1&add=expense`、`?demo=1&add=income`
 
 ---
 
@@ -63,7 +65,7 @@ npm run dev
 使用者明确要求**最新的 iOS 27 风格，不要旧版 iOS 的样子**。重点：
 
 1. **Liquid Glass 材质（iOS 27 改良版）**：比 iOS 26 更不透明、更好读；边缘有一圈**较深的细描边**，上缘有**较亮的高光（specular highlight）**，靠描边分层而不是重阴影。token：`--glass-bg`、`--glass-edge`、`--glass-highlight`、`--glass-shadow`。
-2. **悬浮胶囊 Tab Bar**：底部悬浮、与屏幕边缘留空；**选中项底色比玻璃更深**（iOS 27 改动，`--glass-selected`），不是 iOS 26 的白色亮块。右侧「＋」是独立的强调色圆形按钮（iOS 27 的 prominent tab）。
+2. **悬浮胶囊 Tab Bar（5 个分页：今天 · 记录 · 分析 · 投资 · 设置）**：底部悬浮、与屏幕边缘留空；**选中项底色比玻璃更深**（iOS 27 改动，`--glass-selected`），不是 iOS 26 的白色亮块。右侧「＋」是独立的强调色圆形按钮（iOS 27 的 prominent tab）。在 375px 宽的 iPhone 上每个分页约 53px，**任何调整都不能让单个分页小于 44px**。
 3. **滚动边缘效果**：页面在顶部时导航栏完全透明；内容滚到导航栏下方时，出现**实色模糊 + 底部细线**的「硬边」效果（iOS 27 默认 hard style），并淡入小标题。
 4. **深色模式的玻璃比 iOS 26 明显更亮**（已在 token 调整）。
 5. **大圆角与同心圆角**：卡片 26px、Sheet 38px、按钮全胶囊；内层圆角要与外层同心。
@@ -72,6 +74,9 @@ npm run dev
 8. **Switch**：iOS 26/27 的加宽胶囊开关（track 62×28，knob 为横向胶囊）。
 9. **字体**：SF Pro（`-apple-system`）+ 中文 PingFang SC；大额数字用 **SF Pro Rounded**（`ui-rounded`）。字级遵循 iOS Dynamic Type 的默认值（Large Title 34 / Headline 17 / Body 17 / Footnote 13）。
 10. **颜色**：使用 iOS 26/27 的系统色（已在 `tokens.css`：`--c-blue #0088FF` 等，深色模式另有一套）。状态色（good / warn / bad / info）只用于状态，不可拿来当类别色。
+
+11. **投资页**：像 Apple「股市」+「健康」的混合——大数字市值、完成度进度条、8%/9%/10% 三格对照、预测带状图（`--proj-band` 区间、`--proj-actual` 实际线、`--proj-target` 目标线）。图表线条要细、网格要淡，数字用 tabular-nums，不要堆满标签。
+12. **密码画面**：和 iPhone 解锁画面一样的 6 个圆点与圆形数字键，Face ID 键在左下角。**必须保持完全不透明**。
 
 可以自由发挥的方向：玻璃的层次与高光质感、hero 卡的氛围色、卡片与列表的节奏、动效的弹性（spring）、图标的精致度、App 图标的 Liquid Glass 多层质感。
 
@@ -133,8 +138,12 @@ npm run dev
 |---|---|
 | 今天 | `.card--hero[data-tone=good｜warn｜bad]`、`.hero-amount`、`.hero-sub`、`.hero-foot`、`.hero-note`（`--bad`）、`.card--rings` |
 | 记录 | `.toolbar`、`.month-switch`、`.month-switch__label`、`.summary-row`、`.summary-row__item`、`.section--day`、`.section__title--day` |
-| 分析 | `.stat-grid`、`.stat`、`.stat__label`、`.stat__value`（`.is-income`、`.is-negative`）、`.card--benchmark[data-tier]`、`.benchmark__head`、`.benchmark__profile`、`.benchmark__amount`、`.benchmark__note`、`.insights`、`.insight[data-tone]`、`.insight__icon`、`.insight__text`、`.card--groups`、`.groups`、`.groups__row[data-group]`、`.card--runway[data-tone]`、`.runway__main`、`.runway__value`、`.runway__unit`、`.runway__text`、`.goal`、`.goal__head` |
-| 记一笔 | `.entry`、`.entry__type`、`.entry__hint`、`.entry__meta`、`.entry__delete` |
+| 分析 | `.stat-grid`、`.stat`、`.stat__label`、`.stat__value`（`.is-income`、`.is-negative`）、`.stat__note`、`.card--benchmark[data-tier]`、`.benchmark__head`、`.benchmark__profile`、`.benchmark__amount`、`.benchmark__note`、`.insights`、`.insight[data-tone]`、`.insight__icon`、`.insight__text`、`.card--groups`、`.groups`、`.groups__row[data-group]`、`.card--runway[data-tone]`、`.runway__main`、`.runway__value`、`.runway__unit`、`.runway__text`、`.goal`、`.goal__head` |
+| 记一笔 | `.entry[data-kind=expense｜income]`、`.entry__type`（标题栏的支出/收入切换）、`.entry__hint`、`.entry__meta`、`.entry__delete`、`.entry__save`；收入类型按钮 `.type-picker`（`.is-set`）、`.type-picker__label`、`.type-picker__value`、`.type-picker__chevron` |
+| 投资 | `.card--goal[data-status=preparing｜ahead｜tight｜behind｜done｜missed]`、`.goal-card__head`、`.card--trigger[data-reached]`、`.trigger__title`、`.card--plan`、`.plan__lead`、`.rate-table`、`.rate-table__cell`（`.is-mid` = 建议值）、`.rate-table__rate`、`.rate-table__amount`、`.plan__facts`、`.projection`、`.projection__svg`、`.projection__grid`、`.projection__target`、`.projection__band`、`.projection__edge--high｜--low`、`.projection__actual`、`.projection__dot`、`.projection__today`、`.projection__xlabel`、`.projection__ylabel`、`.legend--projection`、`.legend__swatch--band｜--actual｜--target`、`.milestones`、`.insight-line[data-tone]`、`.row--holding`、`.delta.is-up｜.is-down`、`.disclaimer` |
+| 投资表单 | `.invest-form`、`.plan-editor`、`.holding-detail`、`.holding-detail__head`、`.holding-detail__kind`、`.action-row`、`.chip--select.is-on`、`.choice-cards--wrap`、`.list--values`、`.row--value`、`.value-input`、`.row--history`、`.row__delete` |
+| 密码 | `.pin__dots[data-length=4｜6]`、`.keypad__key--faceid` |
+| 恢复密钥（Google Drive 加密） | `.recovery`、`.recovery__form`、`.recovery__intro`、`.recovery__icon`、`.recovery-key`（7 组 × 4 字，等宽字体，必须清楚易抄）、`.recovery__input`、`.recovery__error` |
 | 设定表单 | `.plan-preview[data-tone]`、`.cat-editor`、`.cat-editor__preview`、`.rec-editor`、`.cat-manager`、`.rec-manager`、`.swatches`、`.swatch.is-selected`、`.icon-grid`、`.icon-grid__item.is-selected` |
 | 引导页 | `.onboarding`、`.onboarding__content`、`.onboarding__hero`、`.onboarding__appicon`、`.onboarding__title`、`.onboarding__lead`、`.onboarding__head`、`.onboarding__footer`、`.onboarding__dots`、`.features`、`.features__icon[data-color]`、`.choice-cards`、`.choice-card.is-selected` |
 
@@ -148,7 +157,7 @@ npm run dev
 
 类别：`i-food i-coffee i-groceries i-transport i-car i-housing i-utilities i-phone i-health i-family i-gift i-shopping i-social i-subscriptions i-learning i-business i-travel i-pet i-sport i-beauty i-game i-other i-salary i-bizincome i-freelance i-otherincome`
 
-界面：`i-today i-list i-chart i-settings i-plus i-close i-chevron-left i-chevron-right i-chevron-down i-search i-trash i-calendar i-note i-check i-lock i-share i-download i-upload i-bell i-info i-warning i-sparkles i-trendUp i-trendDown i-target i-savings i-wallet i-backspace i-add-home i-shield i-arrow-up i-arrow-down i-help i-clock i-sun`
+界面：`i-today i-list i-chart i-invest i-settings i-plus i-close i-chevron-left i-chevron-right i-chevron-down i-search i-trash i-calendar i-note i-check i-lock i-faceid i-key i-cloud i-share i-download i-upload i-bell i-info i-warning i-sparkles i-trendUp i-trendDown i-target i-savings i-wallet i-backspace i-add-home i-shield i-arrow-up i-arrow-down i-help i-clock i-sun`
 
 图标为 24×24 网格、`currentColor` 描边；类别图标会显示在彩色方块上（白色）。
 

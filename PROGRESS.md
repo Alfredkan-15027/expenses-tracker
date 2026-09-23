@@ -24,6 +24,20 @@
 - [x] 部署 GitHub Pages（你开启 GitHub 邮箱隐私后，于 2026-09-23 完成；网页提交只会显示 noreply 地址）
 - [x] iPhone 安装 / 提醒 / 备份指南（docs/IPHONE_SETUP.md）、Codex 提示词
 
+## 第二阶段（2026-09-23 开始）
+- [x] Google Cloud：项目 `expenses-tracker-backup`，Drive API 已启用，OAuth 同意屏幕为「测试」模式（仅你的帐号），
+      只申请 `drive.appdata`（非敏感范围），Web Client ID `824589096781-3vh32s4rifmkt026v3t59775pudmf4bh.apps.googleusercontent.com`
+      （Client ID 是公开值；Client secret 没有被复制或保存，也不需要）
+- [x] 密码锁：6 位数、Face ID（Passkey / WebAuthn）、可调自动上锁时间（立即/1/5/15/60 分钟）
+- [x] 记一笔：收入改为「类型 ▾」选择（记住上次的类型）
+- [x] 投资分页：目标 RM 1,750,000、10 年（从第一次投入起算）、8–10% 年回报假设、按年投入（默认按 8% 保守计算）、
+      月收入 RM 14,000 开始条件、持仓 + 市值 + 实际年化回报（XIRR）、预测带状图
+- [x] 自动备份：每日/每周/每月；iCloud（到期时一键「存储到文件」）或 Google Drive（AES-256-GCM，密钥由 28 位恢复密钥经 PBKDF2 推导；
+      审查后从「6 位密码」改为恢复密钥，因为 6 位密码可以被离线暴力破解）
+- [x] 第 5 个分页、间距检查（375px 宽时每个分页 53px）
+- [x] 多角度审查（4 个角度 + 反驳验证）→ 16 个问题全部修正；修正后再审查（2 个角度）→ 6 个问题全部修正
+- [ ] 部署
+
 ## 测试中发现并修正的问题
 1. 本月圆环数字被截断 → 改成 Apple Activity 同心圆环
 2. 左滑行右侧露出红边 → 未滑动时隐藏删除按钮
