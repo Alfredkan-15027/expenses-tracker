@@ -2,7 +2,7 @@
 // Strategy: stale-while-revalidate — open instantly from cache, refresh files in the background,
 // so design updates (styles / icons) reach the phone on the next launch even without a version bump.
 
-const VERSION = 'v1.1.2';
+const VERSION = 'v1.2.0';
 const CACHE = `expenses-tracker-${VERSION}`;
 
 const PRECACHE = [
@@ -25,6 +25,7 @@ const PRECACHE = [
   'src/core/categories.js',
   'src/core/crypto.js',
   'src/core/dates.js',
+  'src/core/health.js',
   'src/core/ids.js',
   'src/core/invest.js',
   'src/core/money.js',
@@ -51,6 +52,7 @@ const PRECACHE = [
   'src/ui/sheets/cloud.js',
   'src/ui/sheets/entry.js',
   'src/ui/sheets/guides.js',
+  'src/ui/sheets/health.js',
   'src/ui/sheets/invest.js',
   'src/ui/sheets/lockscreen.js',
   'src/ui/sheets/onboarding.js',
