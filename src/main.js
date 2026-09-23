@@ -13,18 +13,22 @@ import today from './ui/screens/today.js';
 import history from './ui/screens/history.js';
 import insights from './ui/screens/insights.js';
 import settings from './ui/screens/settings.js';
+import invest from './ui/screens/invest.js';
+import * as gdrive from './data/gdrive.js';
+import { handleOAuthReturn, runAutoBackup } from './ui/sheets/cloud.js';
 
-const SCREENS = { today, history, insights, settings };
+const SCREENS = { today, history, insights, invest, settings };
 const TABS = [
   { id: 'today', label: '今天', icon: 'today' },
   { id: 'history', label: '记录', icon: 'list' },
   { id: 'insights', label: '分析', icon: 'chart' },
+  { id: 'invest', label: '投资', icon: 'invest' },
   { id: 'settings', label: '设置', icon: 'settings' },
 ];
-const LOCK_AFTER_MS = 60_000;
 
 const params = new URLSearchParams(location.search);
-const demo = params.get('demo') === '1';
+// ?demo=1 → sample data with investing started · ?demo=2 → sample data, investing not started yet
+const demo = ['1', '2'].includes(params.get('demo')) ? params.get('demo') : false;
 const app = { current: 'today', scroll: {}, lastDay: todayISO(), hiddenAt: 0, locked: false };
 
 const $screen = () => document.getElementById('screen');
@@ -83,6 +87,11 @@ export function render({ keepScroll = true } = {}) {
 }
 
 function navigate() {
+  // An OAuth return that arrives without a full page load: consume it (and strip the token) first.
+  if (/(^#|&)(access_token|error)=/.test(location.hash)) {
+    gdrive.consumeRedirect().then((r) => { navigate(); if (r) handleOAuthReturn(r); }).catch(() => {});
+    return;
+  }
   const next = currentFromHash();
   if (next !== app.current) {
     app.scroll[app.current] = window.scrollY;
@@ -258,7 +267,7 @@ document.addEventListener('visibilitychange', async () => {
     return;
   }
   const away = app.hiddenAt ? Date.now() - app.hiddenAt : 0;
-  if (away > LOCK_AFTER_MS && !app.locked && !demo && (await lock.isEnabled())) {
+  if (app.hiddenAt && !app.locked && !demo && (await lock.isEnabled()) && away > (await lock.getAutoLockMs())) {
     root.classList.add('is-locked'); // stays hidden until the passcode is entered
     root.classList.remove('is-concealed');
     await maybeLock();
@@ -267,6 +276,7 @@ document.addEventListener('visibilitychange', async () => {
   const t = todayISO();
   const added = await store.runRecurring(t);
   if (t !== app.lastDay || added) { app.lastDay = t; render(); }
+  runAutoBackup().catch(() => {});
 });
 
 function registerServiceWorker() {
@@ -302,16 +312,25 @@ async function start() {
     </div>`);
     return;
   }
+  // Returning from Google's sign-in page: read (and strip) the token from the URL before routing.
+  const oauth = demo ? null : await gdrive.consumeRedirect().catch(() => null);
   app.current = currentFromHash();
-  // Unlock first so no amount is ever painted behind the passcode screen.
-  await maybeLock();
+  // Unlock first so no amount is ever painted behind the passcode screen. A verified return from a Google
+  // sign-in this app started counts like a short app switch: within the auto-lock delay (measured from the
+  // user's last touch in the unlocked app), no second unlock.
+  const away = oauth?.presentAt ? Date.now() - oauth.presentAt : Infinity;
+  const autoLockMs = await lock.getAutoLockMs().catch(() => 0);
+  if (!(autoLockMs > 0 && away >= 0 && away <= autoLockMs)) await maybeLock();
   store.subscribe(() => render());
   render({ keepScroll: false });
   document.documentElement.classList.add('is-ready');
 
   if (!store.state.settings.onboarded && !demo) openOnboarding();
   else if (params.get('add') === 'expense' || params.get('add') === 'income') openEntrySheet({ type: params.get('add') });
-  if (params.has('add')) window.history.replaceState(null, '', location.pathname + (demo ? '?demo=1' : '') + location.hash);
+  if (params.has('add')) window.history.replaceState(null, '', location.pathname + (demo ? `?demo=${demo}` : '') + location.hash);
+
+  if (oauth) await handleOAuthReturn(oauth);
+  else runAutoBackup().catch(() => {});
 
   registerServiceWorker();
 }
