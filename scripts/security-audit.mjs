@@ -24,8 +24,11 @@ const RULES = [
 
 // Code that ships to the browser.
 const isAppCode = (f) => /^(src\/.*\.js|sw\.js|index\.html|manifest\.webmanifest|styles\/.*\.css|assets\/icons\/.*\.svg)$/.test(f);
+// The only module allowed to reach an outside server: the opt-in, encrypted Google Drive backup.
+const GOOGLE_MODULE = 'src/data/gdrive.js';
+const GOOGLE_URL = /^https:\/\/(accounts\.google\.com|www\.googleapis\.com)([/;]|$)/;
 const APP_RULES = [
-  { re: /https?:\/\/(?!www\.w3\.org\/)/, msg: 'App 代码中出现外部网址（App 不应连接任何外部服务）' },
+  { re: /https?:\/\/(?!www\.w3\.org\/)/, msg: 'App 代码中出现外部网址（App 不应连接任何外部服务）', allow: (f, line) => (f === GOOGLE_MODULE || (f === 'index.html' && line.includes('Content-Security-Policy'))) && [...line.matchAll(/https?:\/\/[^'"`\s)]+/g)].every((m) => GOOGLE_URL.test(m[0])) },
   { re: /\b(XMLHttpRequest|sendBeacon|WebSocket|EventSource)\b/, msg: '网络请求 API' },
   { re: /\beval\s*\(|new Function\s*\(/, msg: '动态执行代码' },
   { re: /\bon(click|load|error|input|change|submit)\s*=\s*["']/i, msg: '内联事件处理（违反 CSP）' },
@@ -39,7 +42,7 @@ for (const f of files) {
   const lines = text.split('\n');
   lines.forEach((line, i) => {
     for (const r of RULES) if (r.re.test(line)) add(f, i + 1, r.msg);
-    if (isAppCode(f)) for (const r of APP_RULES) if (r.re.test(line)) add(f, i + 1, r.msg);
+    if (isAppCode(f)) for (const r of APP_RULES) if (r.re.test(line) && !r.allow?.(f, line)) add(f, i + 1, r.msg);
   });
   if (isAppCode(f) && f.endsWith('.js')) {
     lines.forEach((line, i) => {
@@ -54,7 +57,10 @@ const htmlText = readFileSync('index.html', 'utf8');
 const csp = htmlText.match(/Content-Security-Policy" content="([^"]+)"/)?.[1] || '';
 if (!csp) add('index.html', 0, '缺少 Content-Security-Policy');
 if (!/script-src 'self'(;|$)/.test(csp)) add('index.html', 0, "script-src 必须只允许 'self'");
-if (!/connect-src 'self'/.test(csp)) add('index.html', 0, "connect-src 必须只允许 'self'");
+const connect = csp.match(/connect-src ([^;]+)/)?.[1].trim() || '';
+if (!["'self'", "'self' https://www.googleapis.com"].includes(connect)) {
+  add('index.html', 0, `connect-src 只允许 'self'（以及 Google Drive 备份用的 https://www.googleapis.com），目前是：${connect}`);
+}
 if (/<script(?![^>]*\ssrc=)[^>]*>/i.test(htmlText)) add('index.html', 0, '不允许内联 <script>');
 
 // Commit author e-mails become public on GitHub.
