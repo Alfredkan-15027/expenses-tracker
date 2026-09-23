@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS = {
   gdriveConnected: false,
   lastGdriveBackupAt: 0,
   invest: { ...DEFAULT_INVEST },
+  healthIgnored: [],   // data-check findings the user marked as fine (issue ids)
 };
 
 export const BACKUP_FREQS = [
@@ -58,5 +59,8 @@ export function sanitizeSettings(raw = {}) {
     gdriveConnected: s.gdriveConnected === true,
     lastGdriveBackupAt: Number.isFinite(s.lastGdriveBackupAt) && s.lastGdriveBackupAt > 0 ? s.lastGdriveBackupAt : 0,
     invest: sanitizeInvest(s.invest),
+    healthIgnored: Array.isArray(s.healthIgnored)
+      ? [...new Set(s.healthIgnored.filter((x) => typeof x === 'string' && x.length <= 200))].slice(-300)
+      : [],
   };
 }
