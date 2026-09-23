@@ -6,8 +6,9 @@ import { addMonths, daysInMonth, dateInMonth, dayLabel, isValidISODate, monthRan
 import { DEFAULT_CATEGORIES } from '../src/core/categories.js';
 import {
   monthSummary, dailyBudget, compareMonths, evaluateMonth, trend, runway, quickPicks, buildInsights, upcomingRecurring,
+  trackingStart,
 } from '../src/core/analysis.js';
-import { generateDue, newRecurring, nextDueDate } from '../src/core/recurring.js';
+import { generateDue, newRecurring, nextDueDate, findManualMatch } from '../src/core/recurring.js';
 import { buildBackup, parseBackup, toCSV } from '../src/core/backup.js';
 import { sanitizeSettings } from '../src/core/settings.js';
 import { livingCostTiers, categoryRanges } from '../src/core/benchmarks.js';
@@ -231,4 +232,30 @@ test('settings sanitize drops unknown keys and bad values', () => {
   assert.equal(s.savingsTarget, 0);
   assert.equal(s.goalName.length, 20);
   assert.equal(s.profile.housing, 'room');
+});
+
+test('history typed in after setup counts from its first day, not the setup day', () => {
+  const settings = sanitizeSettings({ expectedIncome: 600000, savingsTarget: 100000, startDate: '2026-09-23' });
+  const txs = [tx('2026-09-01', 150000, 'housing'), tx('2026-09-05', 3000), tx('2026-09-10', 2000), tx('2026-09-23', 2000)];
+  assert.equal(trackingStart(settings, txs), '2026-09-01');
+  const b = dailyBudget({ txs, settings, today: '2026-09-23' });
+  assert.equal(b.budget, 500000); // the full month's budget, not 8/30 of it
+  assert.equal(b.spentMonth, 157000); // earlier spending is counted
+  // A single catch-up entry (rent already paid) keeps the setup date
+  assert.equal(trackingStart(settings, [tx('2026-09-01', 150000, 'housing')]), '2026-09-23');
+  const ev = evaluateMonth({ txs, ym: '2026-09', categories: DEFAULT_CATEGORIES, profile: {}, today: '2026-09-23', startDate: trackingStart(settings, txs) });
+  assert.ok(ev.projected < 300000, `projection ${ev.projected} blown up`); // not extrapolated from 1 day
+  // Entries made by fixed items do not move the start
+  assert.equal(trackingStart(settings, [tx('2026-09-01', 150000, 'housing', { recurringId: 'r' })]), '2026-09-23');
+});
+
+test('recurring: an entry already typed in this month is not logged again', () => {
+  const txs = [tx('2026-09-01', 150000, 'housing')];
+  assert.ok(findManualMatch(txs, { type: 'expense', categoryId: 'housing', amount: 150000 }, '2026-09-10'));
+  assert.equal(findManualMatch(txs, { type: 'expense', categoryId: 'housing', amount: 90000 }, '2026-09-10'), null);
+  assert.equal(findManualMatch(txs, { type: 'expense', categoryId: 'housing', amount: 150000 }, '2026-10-10'), null);
+  // skipping this month works even when the due day is still ahead
+  const r = newRecurring({ id: 'x', type: 'expense', amount: 150000, categoryId: 'housing', day: 28, includeThisMonth: false }, '2026-09-10');
+  assert.equal(generateDue([r], '2026-09-28', id).created.length, 0);
+  assert.equal(generateDue([r], '2026-10-28', id).created.length, 1);
 });
