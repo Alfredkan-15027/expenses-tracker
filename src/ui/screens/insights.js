@@ -3,7 +3,7 @@ import { html, icon, catIcon } from '../html.js';
 import { monthSwitcher, statusBadge } from './shared.js';
 import { stackBar, tierGauge, trendChart, divergeList, progress } from '../charts.js';
 import {
-  monthSummary, evaluateMonth, compareMonths, trend, runway, buildInsights, dailyBudget,
+  monthSummary, evaluateMonth, compareMonths, trend, runway, buildInsights, dailyBudget, trackingStart,
 } from '../../core/analysis.js';
 import { categoryMap, unknownCategory, GROUP_LABELS } from '../../core/categories.js';
 import { HOUSING_OPTIONS, TRANSPORT_OPTIONS, BENCHMARK_SOURCES } from '../../core/benchmarks.js';
@@ -27,7 +27,7 @@ const screen = {
     const { transactions: txs, categories, settings } = state;
     const cats = categoryMap(categories);
     const s = monthSummary(txs, ym, categories);
-    const ev = evaluateMonth({ txs, ym, categories, profile: settings.profile, today, recurring: state.recurring, startDate: settings.startDate });
+    const ev = evaluateMonth({ txs, ym, categories, profile: settings.profile, today, recurring: state.recurring, startDate: trackingStart(settings, txs) });
     const cmp = compareMonths(txs, ym, categories);
     const insights = buildInsights({ txs, ym, categories, profile: settings.profile, settings, today, recurring: state.recurring });
     const rows = trend(txs, ym, 6);
