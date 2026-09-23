@@ -801,3 +801,14 @@ html.is-concealed #app, html.is-concealed #overlay-root { visibility: hidden; }
 }
 .recovery__input { font-family: ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.04em; text-transform: uppercase; }
 .recovery__error { min-height: 18px; font: var(--text-footnote); color: var(--bad-ink); text-align: center; }
+
+/* Data check (资料检查) */
+.health { display: flex; flex-direction: column; gap: 12px; }
+.health-item { display: flex; flex-direction: column; gap: 8px; }
+.health-item__head { display: flex; align-items: flex-start; gap: 10px; }
+.health-item__icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; font-size: 16px; background: var(--info-bg); color: var(--info-ink); }
+.health-item[data-level="warn"] .health-item__icon { background: var(--warn-bg); color: var(--warn-ink); }
+.health-item__title { font: var(--text-headline); padding-top: 3px; }
+.health-item__body { font: var(--text-subhead); color: var(--label-2); }
+.health-item__rows { margin: 0 -18px; }
+.health-item__rows .row { background: transparent; padding-left: 18px; padding-right: 14px; }
