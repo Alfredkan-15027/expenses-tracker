@@ -76,6 +76,12 @@
   --ring-over: #ff383c;
   --ring-save: #34c759;
 
+  /* Investment projection chart */
+  --proj-band: color-mix(in srgb, var(--c-blue) 16%, transparent);
+  --proj-edge: color-mix(in srgb, var(--c-blue) 70%, transparent);
+  --proj-actual: var(--c-green);
+  --proj-target: var(--c-orange);
+
   /* ── Liquid Glass material ──────────────────────────────────────────── */
   /* iOS 27: less transparent than iOS 26, darker defined edge, brighter specular highlight. */
   --glass-bg: rgba(255, 255, 255, 0.74);
@@ -103,7 +109,7 @@
   --section-gap: 28px;
   --row-min: 52px;
   --navbar-h: 52px;
-  --tabbar-h: 62px;
+  --tabbar-h: 60px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --tabbar-bottom: max(calc(var(--safe-bottom) - 10px), 12px);

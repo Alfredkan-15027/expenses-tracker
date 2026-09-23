@@ -54,6 +54,7 @@
 .stat__value { font-family: var(--font-rounded); font-size: 22px; line-height: 28px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat__value.is-income { color: var(--income); }
 .stat__value.is-negative { color: var(--bad-ink); }
+.stat__note { font: var(--text-caption); color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .card--benchmark { display: flex; flex-direction: column; }
 .benchmark__head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -103,6 +104,9 @@
 .entry__meta { display: flex; gap: 8px; }
 .entry__meta .chip { height: 40px; }
 .entry__delete { align-self: center; margin-top: 4px; }
+/* Income has no category grid: keep the keypad and save button down by the thumb */
+.sheet-layer--entry .entry { flex: 1; }
+.entry[data-kind="income"] .keypad { margin-top: auto; }
 
 /* ── Forms inside sheets ────────────────────────────────────────────────── */
 .plan-preview { font: var(--text-footnote); padding: 12px 14px; border-radius: var(--radius-md); background: var(--info-bg); color: var(--info-ink); }
@@ -148,6 +152,43 @@
   transition: box-shadow var(--dur-fast) ease, background var(--dur-fast) ease;
 }
 .choice-card.is-selected { background: var(--info-bg); color: var(--info-ink); box-shadow: 0 0 0 2px var(--accent); }
+
+/* ── 投资 ───────────────────────────────────────────────────────────────── */
+.card--goal, .card--trigger { display: flex; flex-direction: column; gap: 8px; position: relative; overflow: hidden; }
+.card--goal::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--c-green) 13%, transparent) 0%, transparent 60%);
+}
+.card--goal[data-status="behind"]::after, .card--goal[data-status="missed"]::after {
+  background: radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--bad) 12%, transparent) 0%, transparent 60%);
+}
+.goal-card__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.card--trigger[data-reached="true"] { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--good) 55%, transparent); }
+.trigger__title { font: var(--text-callout); }
+.trigger__title strong { font-family: var(--font-rounded); font-weight: 700; }
+
+.card--plan { display: flex; flex-direction: column; gap: 12px; }
+.plan__lead { font: var(--text-subhead); color: var(--label-2); }
+.rate-table { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.rate-table__cell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 6px; border-radius: var(--radius-md); background: var(--fill-4); min-width: 0; }
+.rate-table__cell.is-mid { background: var(--info-bg); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 45%, transparent); }
+.rate-table__rate { font: var(--text-caption); font-weight: 600; color: var(--label-2); }
+.rate-table__amount { font-family: var(--font-rounded); font-size: 16px; line-height: 21px; font-weight: 700; white-space: nowrap; max-width: 100%; letter-spacing: -0.2px; }
+.rate-table__amount small { font-size: 10.5px; font-weight: 600; color: var(--label-2); margin-right: 2px; letter-spacing: 0; }
+@media (max-width: 380px) { .rate-table__amount { font-size: 15px; } .rate-table__cell { padding: 12px 2px; } }
+.plan__facts { display: flex; flex-direction: column; }
+.plan__facts li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; font: var(--text-subhead); box-shadow: inset 0 -0.5px 0 var(--separator); }
+.plan__facts li:last-child { box-shadow: none; }
+.plan__facts span { color: var(--label-2); white-space: nowrap; flex: none; }
+.plan__facts strong { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.card--trigger .plan__facts { margin-top: 2px; }
+
+.row--holding .row__trail { gap: 2px; }
+.holding-detail, .plan-editor, .invest-form { display: flex; flex-direction: column; gap: 14px; }
+.holding-detail__head { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 4px 0; }
+.holding-detail__kind { font: var(--text-footnote); color: var(--label-2); }
+.sheet .stat { background: var(--sheet-surface); }
+.disclaimer { text-align: center; padding-top: 4px; }
 
 /* ── Small screens (iPhone SE / mini) ───────────────────────────────────── */
 @media (max-height: 740px) {
