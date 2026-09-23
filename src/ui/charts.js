@@ -131,6 +131,52 @@ function niceMax(cents) {
   return n * pow * 100;
 }
 
+/** RM amounts in 万 (10k) for tight chart labels: 1,750,000 → "175万". */
+export function formatWan(cents) {
+  const rm = cents / 100;
+  if (rm >= 10_000) return `${(rm / 10_000).toFixed(rm >= 1_000_000 ? 0 : 1).replace(/\.0$/, '')}万`;
+  return `${Math.round(rm).toLocaleString('en-MY')}`;
+}
+
+/**
+ * Investment projection: shaded band between the low / high return assumptions, the target line,
+ * and the actual portfolio value so far. Values in cents; t in years from the plan start.
+ * band: [{ t, low, high }], actual: [{ t, value }], years: plan length, yearLabel(t) → axis text.
+ */
+export function projectionChart({ band, actual = [], target, years, yearLabel, todayT = null }) {
+  const W = 340, H = 196, L = 6, R = 46, T = 12, B = 26;
+  const pw = W - L - R, ph = H - T - B;
+  const maxV = Math.max(target * 1.12, ...band.map((p) => p.high), ...actual.map((p) => p.value), 1);
+  const x = (t) => L + (Math.min(Math.max(t, 0), years) / years) * pw;
+  const y = (v) => T + ph - (Math.max(0, v) / maxV) * ph;
+  const pts = (arr, key) => arr.map((p) => `${x(p.t).toFixed(1)},${y(p[key] ?? p.value).toFixed(1)}`).join(' ');
+  const area = band.length > 1 ? `${pts(band, 'high')} ${pts([...band].reverse(), 'low')}` : '';
+  const step = years > 12 ? 5 : years > 6 ? 2 : 1;
+  const ticks = [];
+  for (let t = 0; t <= years; t += step) ticks.push(t);
+  if (ticks[ticks.length - 1] !== years) ticks.push(years);
+  const grid = [0, target / 2, target];
+  return html`<figure class="projection">
+    <svg class="projection__svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="投资预测图：目标 ${formatWan(target)}，预测区间与实际走势">
+      ${grid.map((g) => html`<line class="projection__grid" x1="${L}" x2="${W - R}" y1="${y(g).toFixed(1)}" y2="${y(g).toFixed(1)}"></line>
+        <text class="projection__ylabel" x="${W - R + 6}" y="${(y(g) + 4).toFixed(1)}">${g === target ? `目标 ${formatWan(g)}` : formatWan(g)}</text>`)}
+      <line class="projection__target" x1="${L}" x2="${W - R}" y1="${y(target).toFixed(1)}" y2="${y(target).toFixed(1)}"></line>
+      ${area ? html`<polygon class="projection__band" points="${area}"></polygon>
+        <polyline class="projection__edge projection__edge--high" points="${pts(band, 'high')}"></polyline>
+        <polyline class="projection__edge projection__edge--low" points="${pts(band, 'low')}"></polyline>` : ''}
+      ${actual.length > 1 ? html`<polyline class="projection__actual" points="${pts(actual, 'value')}"></polyline>` : ''}
+      ${actual.length ? html`<circle class="projection__dot" cx="${x(actual[actual.length - 1].t).toFixed(1)}" cy="${y(actual[actual.length - 1].value).toFixed(1)}" r="4.5"></circle>` : ''}
+      ${todayT !== null ? html`<line class="projection__today" x1="${x(todayT).toFixed(1)}" x2="${x(todayT).toFixed(1)}" y1="${T}" y2="${T + ph}"></line>` : ''}
+      ${ticks.map((t) => html`<text class="projection__xlabel" x="${x(t).toFixed(1)}" y="${H - 8}" text-anchor="${t === 0 ? 'start' : t === years ? 'end' : 'middle'}">${yearLabel(t)}</text>`)}
+    </svg>
+    <figcaption class="legend legend--projection">
+      <span class="legend__item"><span class="legend__swatch legend__swatch--band"></span>预测区间</span>
+      ${actual.length ? html`<span class="legend__item"><span class="legend__swatch legend__swatch--actual"></span>实际市值</span>` : ''}
+      <span class="legend__item"><span class="legend__swatch legend__swatch--target"></span>目标</span>
+    </figcaption>
+  </figure>`;
+}
+
 /** Month-over-month change per category. rows: [{ label, delta, current, previous }]. */
 export function divergeList(rows) {
   const maxAbs = Math.max(1, ...rows.map((r) => Math.abs(r.delta)));

@@ -121,9 +121,10 @@ document.addEventListener('keydown', (e) => {
 
 /**
  * iOS-style alert. buttons: [{ label, role: 'cancel'|'destructive'|'default', value }]
- * Resolves with the chosen button's value.
+ * Resolves with the chosen button's value. container: where to attach it (default: the overlay root, which is
+ * hidden while the app is locked — alerts shown from the lock screen pass the lock layer instead).
  */
-export function alertDialog({ title, message, buttons = [{ label: '好', value: true }] }) {
+export function alertDialog({ title, message, buttons = [{ label: '好', value: true }], container = null }) {
   return new Promise((resolve) => {
     const layer = document.createElement('div');
     layer.className = 'alert-layer';
@@ -138,7 +139,7 @@ export function alertDialog({ title, message, buttons = [{ label: '好', value: 
           ${buttons.map((b, i) => html`<button type="button" class="alert__btn alert__btn--${b.role || 'default'}" data-i="${i}">${b.label}</button>`)}
         </div>
       </div>`);
-    root().appendChild(layer);
+    (container || root()).appendChild(layer);
     stack.push({ close: () => finish(buttons.find((b) => b.role === 'cancel')?.value ?? false) });
     syncScrollLock();
     nextFrame().then(() => layer.classList.add('is-open'));
@@ -157,9 +158,9 @@ export function alertDialog({ title, message, buttons = [{ label: '好', value: 
   });
 }
 
-export function confirmDialog({ title, message, confirm = '确定', cancel = '取消', destructive = false }) {
+export function confirmDialog({ title, message, confirm = '确定', cancel = '取消', destructive = false, container = null }) {
   return alertDialog({
-    title, message,
+    title, message, container,
     buttons: [
       { label: cancel, role: 'cancel', value: false },
       { label: confirm, role: destructive ? 'destructive' : 'default', value: true },
