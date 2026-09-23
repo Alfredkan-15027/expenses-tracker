@@ -6,7 +6,7 @@ import { state, saveRecurring, deleteRecurring, subscribe } from '../../data/sto
 import { activeCategories, categoryMap, unknownCategory } from '../../core/categories.js';
 import { centsToInput, formatMoney, toCents } from '../../core/money.js';
 import { dateInMonth, dayLabel, monthOf, todayISO } from '../../core/dates.js';
-import { newRecurring, nextDueDate } from '../../core/recurring.js';
+import { newRecurring, nextDueDate, findManualMatch } from '../../core/recurring.js';
 import { newId } from '../../core/ids.js';
 
 export function openRecurringManager() {
@@ -72,8 +72,10 @@ export function openRecurringEditor(rec = null) {
     day: rec?.day || Number(today.slice(8, 10)),
     business: rec?.business || false,
     active: rec ? rec.active : true,
-    includeThisMonth: true,
+    includeThisMonth: null, // null = not chosen yet: on, unless this month's payment is already recorded
   };
+  const manualMatch = () => (editing ? null : findManualMatch(state.transactions, { type: s.type, categoryId: s.categoryId, amount: toCents(s.amount) }, today));
+  const includeNow = () => (s.includeThisMonth ?? !manualMatch());
   const sheet = openSheet({
     title: editing ? '编辑固定项目' : '新增固定项目',
     size: 'large',
@@ -89,6 +91,8 @@ export function openRecurringEditor(rec = null) {
         if (name === 'active') s.active = checked;
         if (name === 'include') s.includeThisMonth = checked;
       });
+      // Re-check for an existing entry this month once the amount is typed in.
+      el.addEventListener('change', (e) => { if (e.target.name === 'amount') render(); });
       el.addEventListener('click', async (e) => {
         const t = e.target.closest('[data-type]');
         if (t && t.dataset.type !== s.type) {
@@ -116,6 +120,7 @@ export function openRecurringEditor(rec = null) {
     const focused = document.activeElement?.name;
     const cats = activeCategories(state.categories, s.type);
     const duePassed = dateInMonth(monthOf(today), s.day) <= today;
+    const match = manualMatch();
     mount(root, html`
       <div class="segmented">
         <button type="button" class="segmented__item ${s.type === 'expense' ? 'is-active' : ''}" data-type="expense">支出</button>
@@ -143,8 +148,10 @@ export function openRecurringEditor(rec = null) {
           <input type="checkbox" switch class="switch" name="business" ${s.business ? 'checked' : ''} aria-label="创业支出"></li>` : ''}
         ${editing ? html`<li class="row row--toggle"><span class="row__body"><span class="row__title">启用</span><span class="row__subtitle">关闭后暂停自动记录</span></span>
           <input type="checkbox" switch class="switch" name="active" ${s.active ? 'checked' : ''} aria-label="启用"></li>` : ''}
-        ${!editing && duePassed ? html`<li class="row row--toggle"><span class="row__body"><span class="row__title">本月也记一笔</span><span class="row__subtitle">本月 ${s.day} 号已经过了；如果这个月已经付了，打开它</span></span>
-          <input type="checkbox" switch class="switch" name="include" ${s.includeThisMonth ? 'checked' : ''} aria-label="本月也记一笔"></li>` : ''}
+        ${!editing && (duePassed || match) ? html`<li class="row row--toggle"><span class="row__body"><span class="row__title">本月也记一笔</span><span class="row__subtitle">${match
+            ? `本月已有一笔 ${formatMoney(match.amount)}（${dayLabel(match.date)}），默认不重复记录`
+            : `本月 ${s.day} 号已经过了；如果这个月已经付了，打开它`}</span></span>
+          <input type="checkbox" switch class="switch" name="include" ${includeNow() ? 'checked' : ''} aria-label="本月也记一笔"></li>` : ''}
       </ul>
       ${editing ? html`<button type="button" class="btn btn--plain btn--danger btn--block" data-remove>删除固定项目</button>` : ''}
     `);
@@ -158,7 +165,7 @@ export function openRecurringEditor(rec = null) {
     const base = { type: s.type, amount: cents, categoryId: s.categoryId, note: s.note.trim().slice(0, 40), day: s.day, business: s.type === 'expense' && s.business };
     const r = editing
       ? { ...rec, ...base, active: s.active }
-      : newRecurring({ id: newId(), ...base, includeThisMonth: s.includeThisMonth }, today);
+      : newRecurring({ id: newId(), ...base, includeThisMonth: includeNow() }, today);
     await saveRecurring(r);
     haptic('success');
     toast(editing ? '已保存' : '已新增固定项目', { icon: 'check', tone: 'success' });
