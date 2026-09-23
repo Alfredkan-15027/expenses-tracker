@@ -3,31 +3,36 @@
    ========================================================================== */
 
 /* ── 今天 ───────────────────────────────────────────────────────────────── */
-.card--hero { padding: 20px 20px 18px; display: flex; flex-direction: column; gap: 6px; position: relative; overflow: hidden; }
+.card--hero {
+  padding: 22px 22px 20px;
+  display: flex; flex-direction: column; gap: 7px; position: relative; overflow: hidden;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--hero-tint, var(--accent)) 10%, var(--bg-elevated)), var(--bg-elevated) 70%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hero-tint, var(--accent)) 16%, var(--separator)), inset 0 1px 0 var(--surface-highlight);
+}
 .card--hero::after {
   /* soft tint wash that follows the status */
   content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--hero-tint, var(--accent)) 14%, transparent) 0%, transparent 60%);
+  background: radial-gradient(105% 110% at 100% 0%, color-mix(in srgb, var(--hero-tint, var(--accent)) 14%, transparent) 0%, transparent 62%);
 }
 .card--hero[data-tone="good"] { --hero-tint: var(--c-blue); }
 .card--hero[data-tone="warn"] { --hero-tint: var(--warn); }
 .card--hero[data-tone="bad"] { --hero-tint: var(--bad); }
 .card--hero[data-tone="warn"] .money--hero { color: var(--warn-ink); }
 .card--hero[data-tone="bad"] .money--hero { color: var(--bad-ink); }
-.hero-amount { margin: 2px 0 0; }
+.hero-amount { margin: 4px 0 0; position: relative; z-index: 1; }
 .hero-sub { font: var(--text-subhead); color: var(--label-2); margin-bottom: 10px; }
-.hero-foot { display: flex; justify-content: space-between; gap: 12px; font: var(--text-footnote); color: var(--label-2); margin-top: 10px; }
+.hero-foot { display: flex; justify-content: space-between; gap: 12px; font: var(--text-footnote); color: var(--label-2); margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--separator); position: relative; z-index: 1; }
 .hero-foot strong { color: var(--label); font-weight: 600; font-variant-numeric: tabular-nums; }
 .hero-note { display: flex; gap: 6px; align-items: flex-start; font: var(--text-footnote); color: var(--label-2); margin-top: 6px; }
 .hero-note .icon { margin-top: 2px; }
 .hero-note--bad { color: var(--bad-ink); }
 
-.card--rings { padding: 18px; }
+.card--rings { padding: 20px; }
 .rings { display: flex; align-items: center; gap: 18px; }
 .rings__svg { flex: none; }
-.rings__legend { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.rings__legend { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .rings__item { display: flex; flex-direction: column; min-width: 0; padding-left: 12px; position: relative; }
-.rings__item::before { content: ""; position: absolute; left: 0; top: 3px; bottom: 3px; width: 4px; border-radius: 2px; background: var(--ring-spend); }
+.rings__item::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; background: var(--ring-spend); }
 .rings__item[data-tone="over"]::before { background: var(--ring-over); }
 .rings__item[data-tone="save"]::before { background: var(--ring-save); }
 .rings__label { font: var(--text-footnote); font-weight: 600; color: var(--label-2); }
@@ -37,9 +42,9 @@
 /* ── 记录 ───────────────────────────────────────────────────────────────── */
 .toolbar { display: flex; flex-direction: column; gap: 10px; }
 .month-switch { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.month-switch .btn--icon { width: 40px; height: 40px; font-size: 18px; }
-.month-switch__label { height: 40px; padding: 0 18px; border-radius: var(--radius-pill); font: var(--text-headline); }
-.summary-row { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--bg-elevated); border-radius: var(--radius-lg); padding: 12px 4px; }
+.month-switch .btn--icon { width: 44px; height: 44px; font-size: 18px; }
+.month-switch__label { min-height: 44px; padding: 0 18px; border-radius: var(--radius-pill); font: var(--text-headline); }
+.summary-row { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--bg-elevated); border-radius: var(--radius-card); padding: 16px 4px; box-shadow: inset 0 0 0 1px var(--separator); }
 .summary-row__item { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
 .summary-row__item + .summary-row__item { box-shadow: -0.5px 0 0 var(--separator); }
 .summary-row__item span { font: var(--text-caption); color: var(--label-2); }
@@ -49,23 +54,23 @@
 
 /* ── 分析 ───────────────────────────────────────────────────────────────── */
 .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.stat { background: var(--bg-elevated); border-radius: var(--radius-lg); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stat { background: var(--bg-elevated); border-radius: var(--radius-lg); padding: 16px 17px; display: flex; flex-direction: column; gap: 3px; min-width: 0; box-shadow: inset 0 0 0 1px var(--separator); }
 .stat__label { font: var(--text-footnote); font-weight: 600; color: var(--label-2); }
 .stat__value { font-family: var(--font-rounded); font-size: 22px; line-height: 28px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat__value.is-income { color: var(--income); }
 .stat__value.is-negative { color: var(--bad-ink); }
 .stat__note { font: var(--text-caption); color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.card--benchmark { display: flex; flex-direction: column; }
+.card--benchmark { display: flex; flex-direction: column; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, var(--bg-elevated)), var(--bg-elevated) 72%); }
 .benchmark__head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .benchmark__head .badge { height: 26px; font-size: 13px; padding: 0 11px 0 9px; }
-.benchmark__profile { display: inline-flex; align-items: center; gap: 2px; font: var(--text-footnote); color: var(--accent-ink); font-weight: 500; cursor: pointer; }
+.benchmark__profile { display: inline-flex; align-items: center; gap: 2px; min-height: 44px; padding: 10px 0; font: var(--text-footnote); color: var(--accent-ink); font-weight: 500; cursor: pointer; }
 .benchmark__amount { display: flex; flex-direction: column; margin-top: 12px; }
 .benchmark__amount span { font: var(--text-footnote); color: var(--label-2); }
 .benchmark__amount strong { font-family: var(--font-rounded); font-size: 30px; line-height: 36px; font-weight: 700; }
 .benchmark__note { font: var(--text-footnote); color: var(--label-2); margin-top: 10px; }
 
-.insights { background: var(--bg-elevated); border-radius: var(--radius-card); overflow: hidden; }
+.insights { background: var(--bg-elevated); border-radius: var(--radius-card); overflow: hidden; box-shadow: inset 0 0 0 1px var(--separator); }
 .insight { position: relative; display: flex; gap: 12px; padding: 14px 16px; }
 .insight + .insight::before { content: ""; position: absolute; top: 0; left: 60px; right: 0; height: 0.5px; background: var(--separator); }
 .insight__icon { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; flex: none; }
@@ -99,10 +104,10 @@
 .sheet-layer--entry .sheet__body { gap: 12px; padding-bottom: calc(var(--safe-bottom) + 12px); }
 .entry { display: flex; flex-direction: column; gap: 12px; }
 .entry__type { width: 168px; }
-.entry__type .segmented__item { height: 32px; }
+.entry__type .segmented__item { height: 44px; }
 .entry__hint { font: var(--text-footnote); color: var(--label-2); text-align: center; margin-top: -8px; min-height: 18px; }
 .entry__meta { display: flex; gap: 8px; }
-.entry__meta .chip { height: 40px; }
+.entry__meta .chip { min-height: 44px; }
 .entry__delete { align-self: center; margin-top: 4px; }
 /* Income has no category grid: keep the keypad and save button down by the thumb */
 .sheet-layer--entry .entry { flex: 1; }
@@ -116,7 +121,7 @@
 .cat-editor, .rec-editor, .cat-manager, .rec-manager { display: flex; flex-direction: column; gap: 14px; }
 .cat-editor__preview { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 0; }
 .cat-editor__preview .row__title { font: var(--text-title3); }
-.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); gap: 12px; padding: 14px; background: var(--bg-elevated); border-radius: var(--radius-card); }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 12px; padding: 14px; background: var(--bg-elevated); border-radius: var(--radius-card); }
 .swatch { aspect-ratio: 1; border-radius: 50%; background: var(--cat); transition: transform var(--dur-fast) var(--ease-out); }
 .swatch.is-selected { box-shadow: 0 0 0 3px var(--bg-elevated), 0 0 0 5.5px var(--cat); }
 .swatch:active { transform: scale(0.9); }
@@ -154,7 +159,8 @@
 .choice-card.is-selected { background: var(--info-bg); color: var(--info-ink); box-shadow: 0 0 0 2px var(--accent); }
 
 /* ── 投资 ───────────────────────────────────────────────────────────────── */
-.card--goal, .card--trigger { display: flex; flex-direction: column; gap: 8px; position: relative; overflow: hidden; }
+.card--goal, .card--trigger { display: flex; flex-direction: column; gap: 10px; position: relative; overflow: hidden; }
+.card--goal { padding: 22px; background: linear-gradient(145deg, color-mix(in srgb, var(--c-green) 8%, var(--bg-elevated)), var(--bg-elevated) 68%); }
 .card--goal::after {
   content: ""; position: absolute; inset: 0; pointer-events: none;
   background: radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--c-green) 13%, transparent) 0%, transparent 60%);
@@ -170,8 +176,8 @@
 .card--plan { display: flex; flex-direction: column; gap: 12px; }
 .plan__lead { font: var(--text-subhead); color: var(--label-2); }
 .rate-table { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.rate-table__cell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 6px; border-radius: var(--radius-md); background: var(--fill-4); min-width: 0; }
-.rate-table__cell.is-mid { background: var(--info-bg); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 45%, transparent); }
+.rate-table__cell { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 14px 6px; border-radius: var(--radius-md); background: var(--fill-4); min-width: 0; box-shadow: inset 0 0 0 1px var(--separator); }
+.rate-table__cell.is-mid { background: var(--info-bg); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.22); }
 .rate-table__rate { font: var(--text-caption); font-weight: 600; color: var(--label-2); }
 .rate-table__amount { font-family: var(--font-rounded); font-size: 16px; line-height: 21px; font-weight: 700; white-space: nowrap; max-width: 100%; letter-spacing: -0.2px; }
 .rate-table__amount small { font-size: 10.5px; font-weight: 600; color: var(--label-2); margin-right: 2px; letter-spacing: 0; }
@@ -184,6 +190,7 @@
 .card--trigger .plan__facts { margin-top: 2px; }
 
 .row--holding .row__trail { gap: 2px; }
+.row--holding .row__value { font-family: var(--font-rounded); font-weight: 650; }
 .holding-detail, .plan-editor, .invest-form { display: flex; flex-direction: column; gap: 14px; }
 .holding-detail__head { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 4px 0; }
 .holding-detail__kind { font: var(--text-footnote); color: var(--label-2); }
@@ -200,7 +207,7 @@
   .cat-grid__item { padding: 4px 0 3px; gap: 3px; }
   .cat-grid__item .cat-icon { --size: 38px; font-size: 20px; border-radius: 12px; }
   .entry { gap: 9px; }
-  .entry__meta .chip { height: 36px; }
+  .entry__meta .chip { min-height: 44px; }
   .keypad { gap: 6px; }
   .keypad__key { height: 44px; font-size: 24px; }
 }
