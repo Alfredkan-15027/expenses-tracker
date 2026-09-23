@@ -26,14 +26,17 @@
 - 大圆角、同心圆角、胶囊按钮；iOS 26/27 的 Alert（并排胶囊按钮）与加宽 Switch
 - 字体：SF Pro + PingFang SC；大额数字用 SF Pro Rounded（ui-rounded）
 - 浅色、深色模式都要精修；hero 卡、Activity 风格圆环、图表、类别图标、键盘按键、Sheet 的质感都要更精致
+- 底部 5 个分页（今天 · 记录 · 分析 · 投资 · 设置）：每个分页在 375px 宽时不能小于 44px
+- 投资页（像 Apple「股市」+「健康」）：大数字市值、完成度、8%/9%/10% 三格对照、预测带状图、持仓列表；图表线条细、网格淡
+- 记一笔的「收入」模式（「类型 ▾」按钮）与 6 位数密码画面（含 Face ID 键，必须完全不透明）
 - 可以重新设计 App 图标（Liquid Glass 多层质感），保留原文件名与尺寸（180、192、512、512 maskable）
 
 【必须保持】
 文字对比度 ≥ 4.5:1、可点区域 ≥ 44px、输入框字体 ≥ 16px、safe area、prefers-reduced-motion / prefers-reduced-transparency / prefers-contrast 的处理、状态不能只靠颜色表达、.haptic-proxy 保持不可见。
 
 【预览】
-npm run dev → http://localhost:5173/?demo=1（演示资料，不会写入资料库）
-视窗 390×844 与 375×667，浅色与深色各检查一次。页面：#/today、#/history、#/insights、#/settings；记一笔：点右下角 ＋。
+npm run dev → http://localhost:5173/?demo=1（演示资料，已开始投资）；http://localhost:5173/?demo=2（投资准备阶段）
+视窗 390×844 与 375×667，浅色与深色各检查一次。页面：#/today、#/history、#/insights、#/invest、#/settings；记一笔：点右下角 ＋（收入模式：?demo=1&add=income）。
 
 【完成前必须全部通过】
 npm test
@@ -41,5 +44,5 @@ npm run check:security
 node scripts/check-codex-scope.mjs
 
 【交付】
-在名称以 codex 开头的新分支开 Pull Request（GitHub Actions 会自动再跑一次越界检查），说明改了哪些地方，并附上浅色与深色的截图：今天、记录、分析、设置、记一笔。
+在名称以 codex 开头的新分支开 Pull Request（GitHub Actions 会自动再跑一次越界检查），说明改了哪些地方，并附上浅色与深色的截图：今天、记录、分析、投资、设置、记一笔（支出与收入）。
 ```
