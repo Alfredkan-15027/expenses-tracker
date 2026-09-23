@@ -8,9 +8,11 @@ import { dayLabel, longDateLabel, timeGreeting } from '../../core/dates.js';
 import { txRow } from './shared.js';
 import { openPlanSheet } from '../sheets/plan.js';
 import { openInstallGuide, isStandalone, isIOS } from '../sheets/guides.js';
-import { openBackupSheet } from '../sheets/backup.js';
+import { openBackupSheet, exportBackup } from '../sheets/backup.js';
+import { backupNowToDrive } from '../sheets/cloud.js';
+import { backupDue } from '../../core/settings.js';
 
-const BACKUP_NUDGE_DAYS = 14;
+const BACKUP_NUDGE_DAYS = 30;
 
 const screen = {
   id: 'today',
@@ -68,10 +70,14 @@ const screen = {
     `;
   },
 
-  onClick(e) {
+  onClick(e, ctx) {
     if (e.target.closest('[data-open-plan]')) openPlanSheet();
     else if (e.target.closest('[data-open-install]')) openInstallGuide();
     else if (e.target.closest('[data-open-backup]')) openBackupSheet();
+    else if (e.target.closest('[data-backup-now]')) {
+      if (ctx.state.settings.backupDest === 'gdrive') backupNowToDrive({ interactive: true });
+      else exportBackup();
+    }
   },
 };
 
@@ -84,13 +90,26 @@ function banners(state, demo) {
       ${icon('chevron-right', 'banner__chevron')}
     </button>`);
   }
-  const days = state.settings.lastBackupAt ? (Date.now() - state.settings.lastBackupAt) / 86_400_000 : Infinity;
-  if (!demo && state.transactions.length >= 20 && days > BACKUP_NUDGE_DAYS) {
-    out.push(html`<button type="button" class="banner banner--warn" data-open-backup>
-      <span class="banner__icon">${icon('shield')}</span>
-      <span class="banner__text"><strong>${Number.isFinite(days) ? `已经 ${Math.floor(days)} 天没有备份` : '还没有备份过'}</strong><span>资料只存在这台手机，备份一份到 iCloud 更安心</span></span>
+  const s = state.settings;
+  const hasData = state.transactions.length >= 5 || state.holdings.length > 0;
+  if (!demo && hasData && s.backupFreq !== 'off' && backupDue(s)) {
+    const drive = s.backupDest === 'gdrive';
+    const last = drive ? s.lastGdriveBackupAt : s.lastBackupAt;
+    const when = last ? `上次备份：${Math.floor((Date.now() - last) / 86_400_000)} 天前` : '还没有备份过';
+    out.push(html`<button type="button" class="banner banner--warn" data-backup-now>
+      <span class="banner__icon">${icon(drive ? 'cloud' : 'shield')}</span>
+      <span class="banner__text"><strong>${drive ? (s.gdriveConnected ? '该备份了 · 点一下备份到 Google Drive' : '连接 Google Drive 以备份') : '该备份了 · 点一下存到 iCloud'}</strong><span>${when}${drive ? ' · 已加密' : ' · 在分享菜单选「存储到文件」'}</span></span>
       ${icon('chevron-right', 'banner__chevron')}
     </button>`);
+  } else if (!demo && s.backupFreq === 'off' && state.transactions.length >= 20) {
+    const days = s.lastBackupAt ? (Date.now() - s.lastBackupAt) / 86_400_000 : Infinity;
+    if (days > BACKUP_NUDGE_DAYS) {
+      out.push(html`<button type="button" class="banner banner--warn" data-open-backup>
+        <span class="banner__icon">${icon('shield')}</span>
+        <span class="banner__text"><strong>${Number.isFinite(days) ? `已经 ${Math.floor(days)} 天没有备份` : '还没有备份过'}</strong><span>资料只存在这台手机，建议开启自动备份</span></span>
+        ${icon('chevron-right', 'banner__chevron')}
+      </button>`);
+    }
   }
   return out;
 }
