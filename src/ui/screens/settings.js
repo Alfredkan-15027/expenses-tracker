@@ -17,7 +17,7 @@ import { setupPin, confirmPin } from '../sheets/lockscreen.js';
 import { hasBackupKey } from '../../data/cloudbackup.js';
 import { openHealthCheck, healthIssues } from '../sheets/health.js';
 
-export const APP_VERSION = '1.3.0';
+export const APP_VERSION = '1.3.1';
 
 let lockInfo = { enabled: false, pinLength: 6, autoLockMs: 60_000, biometric: false };
 let faceIdAvailable = false;
