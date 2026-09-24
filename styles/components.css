@@ -639,8 +639,11 @@ html.has-overlay .toast { bottom: calc(var(--safe-bottom) + 24px); }
 .trend__bar { width: min(62%, 30px); min-height: 2px; border-radius: 7px 7px 3px 3px; background: color-mix(in srgb, var(--accent) 27%, var(--bg-tertiary)); transition: background var(--dur-fast) ease, height 600ms var(--ease-out); }
 .trend__col.is-selected .trend__bar { background: var(--accent); }
 .trend__col.is-selected .trend__bar.is-over { background: var(--warn); }
+/* A period tracked only in part: outlined, so it doesn't read as a real low month. */
+.trend__bar.is-partial { background: transparent; border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent); }
+.trend__col.is-selected .trend__bar.is-partial { background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: var(--accent); }
 .trend__axis { display: flex; gap: 6px; margin: 8px 34px 0 0; font: var(--text-caption); color: var(--label-2); }
-.trend__axis span { flex: 1; text-align: center; }
+.trend__axis span { flex: 1; min-width: 0; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .trend__axis .is-selected { color: var(--label); font-weight: 600; }
 
 .diverge { display: flex; flex-direction: column; gap: 12px; }
