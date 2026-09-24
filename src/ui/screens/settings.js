@@ -7,7 +7,7 @@ import * as lock from '../../data/lock.js';
 import { formatMoney } from '../../core/money.js';
 import { BACKUP_FREQS } from '../../core/settings.js';
 import { HOUSING_OPTIONS, TRANSPORT_OPTIONS } from '../../core/benchmarks.js';
-import { openPlanSheet, openMoneySheet, openChoiceSheet, openTextSheet } from '../sheets/plan.js';
+import { openPlanSheet, openMoneySheet, openChoiceSheet, openTextSheet, openNumberSheet } from '../sheets/plan.js';
 import { openCategoryManager } from '../sheets/categories.js';
 import { openRecurringManager } from '../sheets/recurring.js';
 import { openInstallGuide, openReminderGuide, openPrivacySheet, isStandalone } from '../sheets/guides.js';
@@ -17,7 +17,7 @@ import { setupPin, confirmPin } from '../sheets/lockscreen.js';
 import { hasBackupKey } from '../../data/cloudbackup.js';
 import { openHealthCheck, healthIssues } from '../sheets/health.js';
 
-export const APP_VERSION = '1.2.0';
+export const APP_VERSION = '1.3.0';
 
 let lockInfo = { enabled: false, pinLength: 6, autoLockMs: 60_000, biometric: false };
 let faceIdAvailable = false;
@@ -72,9 +72,10 @@ const screen = {
         <h2 class="section__title">每月计划</h2>
         <ul class="list">
           ${row({ action: 'income', glyph: 'salary', color: 'green', title: '预计每月收入', value: s.expectedIncome ? formatMoney(s.expectedIncome, { round: true }) : '未设定' })}
+          ${row({ action: 'cycle', glyph: 'calendar', color: 'orange', title: '预算周期', value: s.payCycle.enabled ? `收入日 ${s.payCycle.from}–${s.payCycle.to} 号` : '日历月', sub: s.payCycle.enabled ? '从收到薪水／创业收入那天开始' : '每月 1 号开始' })}
           ${row({ action: 'target', glyph: 'target', color: 'blue', title: '每月存款目标', value: s.savingsTarget ? formatMoney(s.savingsTarget, { round: true }) : '未设定' })}
         </ul>
-        <p class="section__footer">${budget ? `每月可支配 ${formatMoney(budget, { round: true })}（收入 − 存款目标），「今天还能花」按这个数字计算。` : '填入收入后，「今天」页会显示每天还能花多少。'}</p>
+        <p class="section__footer">${budget ? `${s.payCycle.enabled ? '每个收入周期' : '每月'}可支配 ${formatMoney(budget, { round: true })}（收入 − 存款目标），「今天还能花」按这个数字计算。` : '填入收入后，「今天」页会显示每天还能花多少。'}</p>
       </section>
 
       <section class="section">
@@ -175,6 +176,26 @@ const screen = {
     haptic();
     const s = ctx.state.settings;
     switch (b.dataset.set) {
+      case 'cycle': {
+        const mode = await openChoiceSheet({
+          title: '预算周期',
+          options: [
+            { id: 'month', label: '日历月', hint: '每月 1 号开始，适合月初领薪' },
+            { id: 'cycle', label: '收入周期', hint: '从收到薪水或创业收入那天开始，到下次收入前一天' },
+          ],
+          value: s.payCycle.enabled ? 'cycle' : 'month',
+          footer: '收入周期：你设定每月收入通常在哪几天进来（例如 15–20 号）。窗口里第一笔「薪水」或「创业收入」入账那天就是新周期的第一天；下次收入按窗口最晚那天估计，确保钱够用到那天。',
+        });
+        if (mode === 'month') await saveSettings({ payCycle: { ...s.payCycle, enabled: false } });
+        if (mode !== 'cycle') break;
+        const from = await openNumberSheet({ title: '收入最早几号', label: '每月收入通常最早在几号进来', value: s.payCycle.from, suffix: '号', min: 1, max: 31, decimals: 0 });
+        if (from === null) break;
+        const to = await openNumberSheet({ title: '收入最晚几号', label: '每月收入通常最晚在几号进来', value: Math.max(from, s.payCycle.to), suffix: '号', min: from, max: 31, decimals: 0, hint: '下次收入会按这一天估计，每日额度更保守。' });
+        if (to === null) break;
+        await saveSettings({ payCycle: { enabled: true, from, to } });
+        toast(`已改成收入周期：每月 ${from}–${to} 号`, { icon: 'check', tone: 'success' });
+        break;
+      }
       case 'income':
       case 'target':
         await openPlanSheet();

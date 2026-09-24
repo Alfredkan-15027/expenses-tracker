@@ -1,40 +1,48 @@
 // 分析 — monthly summary, KL 24yo founder benchmark, insights, categories, month-over-month, trend, runway.
 import { html, icon, catIcon } from '../html.js';
-import { monthSwitcher, statusBadge } from './shared.js';
+import { periodSwitcher, statusBadge } from './shared.js';
 import { stackBar, tierGauge, trendChart, divergeList, progress } from '../charts.js';
 import {
-  monthSummary, evaluateMonth, compareMonths, trend, runway, buildInsights, dailyBudget, trackingStart,
+  periodSummary, evaluatePeriod, comparePeriods, trendPeriods, runway, buildInsights, dailyBudget, trackingStart,
 } from '../../core/analysis.js';
+import { periodFor, periodByKey, prevPeriod, nextPeriod, periodsEndingWith } from '../../core/periods.js';
 import { categoryMap, unknownCategory, GROUP_LABELS } from '../../core/categories.js';
 import { HOUSING_OPTIONS, TRANSPORT_OPTIONS, BENCHMARK_SOURCES } from '../../core/benchmarks.js';
 import { formatMoney, formatPercent } from '../../core/money.js';
-import { monthLabel, monthOf } from '../../core/dates.js';
+import { monthLabel } from '../../core/dates.js';
 import { haptic } from '../haptics.js';
 import { openSheet } from '../overlays.js';
 import { openChoiceSheet } from '../sheets/plan.js';
 import { saveSettings } from '../../data/store.js';
 
-const ui = { ym: null, trendIndex: null };
+const ui = { key: null, mode: null, trendIndex: null };
 
 const screen = {
   id: 'insights',
   title: '分析',
 
   render({ state, today }) {
-    const current = monthOf(today);
-    if (!ui.ym || ui.ym > current) ui.ym = current;
-    const ym = ui.ym;
     const { transactions: txs, categories, settings } = state;
+    const ctx = { txs, settings };
+    const currentP = periodFor(today, ctx);
+    // Switching between calendar months and pay cycles resets the view to the current period.
+    if (!ui.key || ui.mode !== currentP.kind || ui.key > today) { ui.key = currentP.key; ui.mode = currentP.kind; }
+    const p = periodByKey(ui.key, ctx);
+    const isCurrentP = p.start <= today && today <= p.end;
+    const cycle = p.kind === 'cycle';
+    const THIS = cycle ? '本期' : '本月';
     const cats = categoryMap(categories);
-    const s = monthSummary(txs, ym, categories);
+    const s = periodSummary(txs, p, categories);
     const since = trackingStart(settings, txs);
-    const ev = evaluateMonth({ txs, ym, categories, profile: settings.profile, today, recurring: state.recurring, startDate: since });
-    const cmp = compareMonths(txs, ym, categories, since);
-    const insights = buildInsights({ txs, ym, categories, profile: settings.profile, settings, today, recurring: state.recurring });
-    const rows = trend(txs, ym, 6);
+    const ev = evaluatePeriod({ txs, period: p, categories, profile: settings.profile, today, recurring: state.recurring, startDate: since });
+    const prevP = prevPeriod(p, ctx);
+    const cmp = comparePeriods(txs, p, prevP, categories, since);
+    const insights = buildInsights({ txs, period: p, categories, profile: settings.profile, settings, today, recurring: state.recurring });
+    const rows = trendPeriods(txs, periodsEndingWith(p, 6, ctx));
     const tIdx = ui.trendIndex ?? rows.length - 1;
-    const plan = dailyBudget({ txs, settings, recurring: state.recurring, today: ym === current ? today : `${ym}-01` });
-    const rw = runway({ txs, currentSavings: settings.currentSavings, today, since });
+    const plan = dailyBudget({ txs, settings, recurring: state.recurring, today: isCurrentP ? today : p.start });
+    const rw = runway({ txs, currentSavings: settings.currentSavings, today, since, settings, recurring: state.recurring });
+    const nextP = nextPeriod(p, ctx);
     const cat = (id) => cats.get(id) || unknownCategory();
     const housing = HOUSING_OPTIONS.find((o) => o.id === ev.profile.housing)?.label;
     const transport = TRANSPORT_OPTIONS.find((o) => o.id === ev.profile.transport)?.label;
@@ -43,7 +51,7 @@ const screen = {
       <header class="screen__header">
         <h1 class="large-title">分析</h1>
       </header>
-      ${monthSwitcher(ym, current)}
+      ${periodSwitcher(p, { prevKey: prevP.key, nextKey: nextP.key, currentKey: currentP.key, canNext: !isCurrentP && nextP.start <= today })}
 
       <div class="stat-grid">
         <div class="stat"><span class="stat__label">收入</span><span class="stat__value is-income">${formatMoney(s.income, { round: true })}</span></div>
@@ -60,16 +68,17 @@ const screen = {
             <span class="benchmark__profile" data-edit-profile role="button" tabindex="0">${housing} · ${transport} ${icon('chevron-right')}</span>
           </div>
           <p class="benchmark__amount">
-            <span>${ev.isPartial ? '本月预计个人生活费' : '个人生活费'}</span>
-            <strong>${formatMoney(ev.isPartial ? ev.projected : ev.personalTotal, { round: true })}</strong>
+            <span>${ev.isPartial ? `${THIS}预计个人生活费` : '个人生活费'}${ev.normalized ? '（按 30 天）' : ''}</span>
+            <strong>${formatMoney(ev.perMonth, { round: true })}</strong>
           </p>
-          ${tierGauge({ value: ev.isPartial ? ev.projected : ev.personalTotal, tiers: ev.tiers, label: '生活费对照' })}
+          ${tierGauge({ value: ev.perMonth, tiers: ev.tiers, label: '生活费对照' })}
           <div class="gauge__legend">
             <span data-tone="lean">精简</span><span data-tone="ok">合理</span><span data-tone="high">偏高</span><span data-tone="over">过高</span>
           </div>
           <p class="benchmark__note">
             不含创业投入${s.business ? ` ${formatMoney(s.business, { round: true })}` : ''}。
-            ${ev.isPartial ? `已按记录天数（${Math.round(ev.elapsed * 100)}%）推算整月。` : ''}
+            ${ev.isPartial ? `已按记录天数（${Math.round(ev.elapsed * 100)}%）推算${cycle ? '整期' : '整月'}。` : ''}
+            ${ev.normalized ? `本期共 ${p.days} 天（${p.label}），已换算成 30 天和每月参考值比较。` : ''}
             <button type="button" class="link" data-sources>参考资料</button>
           </p>
         </div>
@@ -117,19 +126,19 @@ const screen = {
       ${cmp.comparable && (cmp.previous.expense > 0 || cmp.current.expense > 0) ? html`
         <section class="section">
           <div class="section__header">
-            <h2 class="section__title">与${monthLabel(cmp.prevYm, false)}相比</h2>
+            <h2 class="section__title">${cycle ? '与上一期相比' : `与${monthLabel(cmp.prevYm, false)}相比`}</h2>
             <span class="section__meta ${cmp.delta > 0 ? 'is-up' : 'is-down'}">${cmp.delta > 0 ? '+' : cmp.delta < 0 ? '−' : ''}${formatMoney(Math.abs(cmp.delta), { round: true })}${cmp.ratio !== null ? ` (${cmp.delta > 0 ? '+' : ''}${formatPercent(cmp.ratio)})` : ''}</span>
           </div>
           <div class="card">
             ${cmp.rows.filter((r) => r.delta !== 0).length
               ? divergeList(cmp.rows.filter((r) => r.delta !== 0).slice(0, 6).map((r) => ({ ...r, label: cat(r.categoryId).name })))
               : html`<p class="muted">和上个月一样。</p>`}
-            <p class="card__footnote">${icon('info')} 右侧为增加，左侧为减少${ym === current ? '；本月还没结束，差距会继续变化' : ''}。</p>
+            <p class="card__footnote">${icon('info')} 右侧为增加，左侧为减少${cmp.normalized ? '；两期都按 30 天换算' : ''}${isCurrentP ? `；${THIS}还没结束，差距会继续变化` : ''}。</p>
           </div>
         </section>` : ''}
 
       <section class="section">
-        <h2 class="section__title">近 6 个月</h2>
+        <h2 class="section__title">${cycle ? '近 6 个收入周期' : '近 6 个月'}</h2>
         <div class="card">
           ${trendChart(rows, { selected: Math.min(tIdx, rows.length - 1), budget: plan.hasPlan ? plan.budget : 0 })}
         </div>
@@ -140,8 +149,8 @@ const screen = {
   },
 
   onClick(e, ctx) {
-    const m = e.target.closest('[data-month]');
-    if (m && !m.disabled) { ui.ym = m.dataset.month; ui.trendIndex = null; haptic(); ctx.rerender(); return; }
+    const m = e.target.closest('[data-period]');
+    if (m && !m.disabled) { ui.key = m.dataset.period; ui.trendIndex = null; haptic(); ctx.rerender(); return; }
     const col = e.target.closest('[data-trend-i]');
     if (col) { ui.trendIndex = Number(col.dataset.trendI); haptic(); ctx.rerender(); return; }
     if (e.target.closest('[data-sources]')) { openSources(); return; }

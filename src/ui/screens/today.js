@@ -133,6 +133,8 @@ function hero(b) {
       <span class="card--setup__cta">开始设定 ${icon('chevron-right')}</span>
     </button>`;
   }
+  const cycle = b.period.kind === 'cycle';
+  const THIS = cycle ? '本期' : '本月';
   const over = b.leftToday < 0;
   const label = over ? '今天已超出' : '今天还能花';
   const tone = b.status === 'overMonth' ? 'bad' : over ? 'warn' : 'good';
@@ -142,18 +144,22 @@ function hero(b) {
     <p class="hero-sub">
       每日额度 ${formatMoney(Math.max(0, b.allowanceToday))} · 今天已花 ${formatMoney(b.spentToday)}
     </p>
-    ${progress({ ratio: b.usedRatio, marker: b.monthProgress, tone: tone === 'good' ? 'spend' : tone, label: '本月预算使用' })}
+    ${progress({ ratio: b.usedRatio, marker: b.monthProgress, tone: tone === 'good' ? 'spend' : tone, label: `${THIS}预算使用` })}
     <div class="hero-foot">
-      <span>${b.leftMonth >= 0 ? html`本月还剩 <strong>${formatMoney(b.leftMonth, { round: true })}</strong>` : html`本月已超支 <strong>${formatMoney(-b.leftMonth, { round: true })}</strong>`}</span>
+      <span>${b.leftMonth >= 0 ? html`${THIS}还剩 <strong>${formatMoney(b.leftMonth, { round: true })}</strong>` : html`${THIS}已超支 <strong>${formatMoney(-b.leftMonth, { round: true })}</strong>`}</span>
       <span>还有 ${b.daysLeft} 天</span>
     </div>
-    ${b.prorated ? html`<p class="hero-note">${icon('info')} 从${dayLabel(b.startDate)}开始记录，本月预算已按剩余天数折算为 ${formatMoney(b.budget, { round: true })}</p>` : ''}
-    ${b.reserved > 0 ? html`<p class="hero-note">${icon('clock')} 已预留本月未到期的固定支出 ${formatMoney(b.reserved, { round: true })}</p>` : ''}
-    ${b.status === 'overMonth' ? html`<p class="hero-note hero-note--bad">${icon('warning')} 本月预算已用完，接下来每一笔都会动用存款目标。</p>` : ''}
+    ${cycle ? html`<p class="hero-note">${icon('calendar')} ${b.period.overdue
+      ? `收入比平常晚，本期（从${dayLabel(b.period.start)}起）暂时延长到${dayLabel(b.period.end)}`
+      : `本期 ${b.period.label}${b.period.estimated ? '（还没记录本期收入，先按窗口估计）' : ''} · 下次收入按${dayLabel(b.period.nextPay || b.period.end)}估计`}</p>` : ''}
+    ${b.prorated ? html`<p class="hero-note">${icon('info')} 从${dayLabel(b.startDate)}开始记录，${THIS}预算已按剩余天数折算为 ${formatMoney(b.budget, { round: true })}</p>` : ''}
+    ${b.reserved > 0 ? html`<p class="hero-note">${icon('clock')} 已预留${THIS}未到期的固定支出 ${formatMoney(b.reserved, { round: true })}</p>` : ''}
+    ${b.status === 'overMonth' ? html`<p class="hero-note hero-note--bad">${icon('warning')} ${THIS}预算已用完，接下来每一笔都会动用存款目标。</p>` : ''}
   </section>`;
 }
 
 function monthCard(b, settings) {
+  const THIS = b.period.kind === 'cycle' ? '本期' : '本月';
   const target = settings.savingsTarget;
   const saveRatio = target > 0 ? Math.max(0, b.savedMonth) / target : 0;
   const spendRatio = b.budget > 0 ? b.spentMonth / b.budget : 0;
@@ -161,17 +167,17 @@ function monthCard(b, settings) {
   return html`<section class="card card--rings">
     <div class="rings">
       ${activityRings([
-        { ratio: spendRatio, tone: spendTone, label: '本月支出占预算' },
-        { ratio: saveRatio, tone: 'save', label: '本月存款目标进度' },
+        { ratio: spendRatio, tone: spendTone, label: `${THIS}支出占预算` },
+        { ratio: saveRatio, tone: 'save', label: `${THIS}存款目标进度` },
       ])}
       <ul class="rings__legend">
         <li class="rings__item" data-tone="${spendTone}">
-          <span class="rings__label">本月支出</span>
+          <span class="rings__label">${THIS}支出</span>
           <span class="rings__value">${formatMoney(b.spentMonth, { round: true })}</span>
           <span class="rings__sub">${b.budget > 0 ? `预算的 ${formatPercent(spendRatio)}` : '未设定预算'}</span>
         </li>
         <li class="rings__item" data-tone="save">
-          <span class="rings__label">本月结余</span>
+          <span class="rings__label">${THIS}结余</span>
           <span class="rings__value">${formatMoney(b.savedMonth, { round: true })}</span>
           <span class="rings__sub">${target > 0
             ? (b.incomeMonth > 0 ? `存款目标 ${formatMoney(target, { round: true })} · ${formatPercent(Math.min(saveRatio, 9.99))}` : '记下收入后显示进度')

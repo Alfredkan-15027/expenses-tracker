@@ -35,6 +35,16 @@ export function monthSwitcher(ym, current) {
   </div>`;
 }
 
+/** Previous / current / next switcher for a budget period (month or pay cycle). */
+export function periodSwitcher(p, { prevKey, nextKey, currentKey, canNext }) {
+  const cycle = p.kind === 'cycle';
+  return html`<div class="month-switch" role="group" aria-label="${cycle ? '切换收入周期' : '切换月份'}">
+    <button type="button" class="btn btn--icon btn--glass" data-period="${prevKey}" aria-label="${cycle ? '上一期' : '上个月'}">${icon('chevron-left')}</button>
+    <button type="button" class="month-switch__label" data-period="${currentKey}" aria-label="${cycle ? '回到本期' : '回到本月'}">${p.label}</button>
+    <button type="button" class="btn btn--icon btn--glass" data-period="${nextKey}" aria-label="${cycle ? '下一期' : '下个月'}" ${canNext ? '' : 'disabled'}>${icon('chevron-right')}</button>
+  </div>`;
+}
+
 /** Status pill used in analysis: icon + label, never color alone. */
 export function statusBadge(status) {
   const map = {
