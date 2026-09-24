@@ -5,7 +5,7 @@ import { toCents, formatMoney, moneyParts, centsToInput } from '../src/core/mone
 import { addMonths, daysInMonth, dateInMonth, dayLabel, isValidISODate, monthRange } from '../src/core/dates.js';
 import { DEFAULT_CATEGORIES } from '../src/core/categories.js';
 import {
-  monthSummary, dailyBudget, compareMonths, evaluateMonth, trend, runway, quickPicks, buildInsights, upcomingRecurring,
+  monthSummary, dailyBudget, compareMonths, evaluateMonth, trend, runway, quickPicks, buildInsights, upcomingRecurring, spendingModel,
   trackingStart,
 } from '../src/core/analysis.js';
 import { generateDue, newRecurring, nextDueDate, findManualMatch } from '../src/core/recurring.js';
@@ -155,12 +155,33 @@ test('trend returns n months in order', () => {
   assert.equal(t[5].income, 500);
 });
 
-test('runway uses average of recent complete months', () => {
-  const txs = [tx('2026-08-01', 200000), tx('2026-07-01', 100000)];
-  const r = runway({ txs, currentSavings: 900000, today: '2026-09-15' });
-  assert.equal(r.avg, 150000);
-  assert.equal(r.months, 6);
+test('runway = fixed items at their amount + day-to-day spending at its recent pace', () => {
+  const rec = [
+    { id: 'rent', type: 'expense', amount: 80000, categoryId: 'housing', day: 1, active: true },
+    { id: 'tool', type: 'expense', amount: 10000, categoryId: 'subscriptions', day: 5, business: true, active: true },
+  ];
+  const txs = [
+    tx('2026-09-01', 80000, 'housing', { recurringId: 'rent' }),
+    tx('2026-09-02', 3000), tx('2026-09-10', 3000),               // RM 60 in 15 days → RM 120 per 30 days
+    tx('2026-09-12', 75000, 'business', { business: true }),      // one-off business payment: not a monthly cost
+  ];
+  const r = runway({ txs, currentSavings: 900000, today: '2026-09-15', since: '2026-09-01', recurring: rec });
+  assert.equal(r.avg, 80000 + 10000 + 12000);
+  assert.equal(r.fixed, 90000);
+  assert.equal(r.oneOffBusiness, 75000);
+  assert.equal(r.months, 900000 / 102000);
   assert.equal(runway({ txs, currentSavings: 0, today: '2026-09-15' }), null);
+  // Under a week of records: not enough to know the pace
+  assert.equal(runway({ txs, currentSavings: 900000, today: '2026-09-04', since: '2026-09-01', recurring: rec }).months, null);
+});
+
+test('spendingModel: rent typed in by hand counts once as fixed, a hand-typed fixed item is not pace', () => {
+  const rec = [{ id: 'wifi', type: 'expense', amount: 5600, categoryId: 'utilities', day: 15, active: true }];
+  const txs = [tx('2026-09-01', 150000, 'housing'), tx('2026-09-15', 5600, 'utilities'), tx('2026-09-05', 3000)];
+  const m = spendingModel({ txs, recurring: rec, today: '2026-09-30', since: '2026-09-01' });
+  assert.equal(m.fixedPersonal, 150000 + 5600);
+  assert.equal(m.variable, 3000);
+  assert.equal(m.variableMonthly, 3000);
 });
 
 test('quickPicks finds repeated entries', () => {

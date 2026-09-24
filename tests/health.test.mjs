@@ -56,3 +56,14 @@ test('ignored findings stay hidden', () => {
   const settings = sanitizeSettings({ ...okSettings, healthIgnored: [first[0].id] });
   assert.equal(checkData({ ...base, transactions: txs, settings }).length, 0);
 });
+
+test('a fixed item marked done this month by last month\'s charge is flagged before its day', () => {
+  const apple = { id: 'rA', type: 'expense', amount: 2830, categoryId: 'subscriptions', note: 'Apple 订阅', day: 30, active: true, startMonth: '2026-09', lastMonth: '2026-09' };
+  const txs = [tx('2026-08-30', 2830, 'subscriptions', { recurringId: 'rA' }), tx('2026-09-01', 1200), tx('2026-09-02', 800), tx('2026-09-03', 900)];
+  const found = checkData({ ...base, transactions: txs, recurring: [apple], settings: okSettings }).filter((i) => i.kind === 'fixed-skipped');
+  assert.equal(found.length, 1);
+  assert.deepEqual(found[0].fix, { type: 'unskip', recurringId: 'rA' });
+  // Skipped on purpose because it was paid by hand this month: fine
+  const paid = [...txs, tx('2026-09-10', 2830, 'subscriptions')];
+  assert.equal(checkData({ ...base, transactions: paid, recurring: [apple], settings: okSettings }).filter((i) => i.kind === 'fixed-skipped').length, 0);
+});
