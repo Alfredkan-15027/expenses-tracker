@@ -101,6 +101,20 @@ export function checkData({ transactions: txs, categories, recurring = [], setti
         });
       }
     }
+    // Marked as done for this month, but nothing was recorded this month (e.g. last month's charge was
+    // linked to it): this month's charge would never be logged or reserved.
+    if (due > today && r.lastMonth && r.lastMonth >= cur && (!r.startMonth || r.startMonth <= cur)) {
+      const logged = own.some((t) => monthOf(t.date) === cur)
+        || manual.some((u) => u.type === r.type && u.categoryId === r.categoryId && monthOf(u.date) === cur && near(u.amount, r.amount));
+      if (!logged) {
+        out.push({
+          id: `skipped:${r.id}:${cur}`, level: 'info', kind: 'fixed-skipped',
+          title: `「${name}」${dayLabel(due, today)}不会自动记账`,
+          body: `这个固定项目被标记为本月已记过，但本月没有它的记录${own.length ? `（最近一笔在${dayLabel(own.map((t) => t.date).sort().pop(), today)}）` : ''}，所以到时不会自动记上，「今天还能花」也不会预留这 ${formatMoney(r.amount)}。如果这个月照常扣款，点一下恢复。`,
+          txIds: [], fix: { type: 'unskip', recurringId: r.id },
+        });
+      }
+    }
     const last = own.sort((a, b) => (a.date < b.date ? 1 : -1))[0];
     if (last) {
       const expected = dateInMonth(monthOf(last.date), r.day);

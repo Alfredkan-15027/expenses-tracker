@@ -22,13 +22,13 @@ const md = (iso) => `${Number(iso.slice(5, 7))}月${Number(iso.slice(8, 10))}日
 
 export function monthPeriod(ym) {
   const days = daysInMonth(ym);
-  return { kind: 'month', key: ym, start: `${ym}-01`, end: dateInMonth(ym, days), days, label: monthLabel(ym), short: monthLabel(ym, false) };
+  return { kind: 'month', key: ym, start: `${ym}-01`, end: dateInMonth(ym, days), days, label: monthLabel(ym), short: monthLabel(ym, false), tick: monthLabel(ym, false) };
 }
 
 function cyclePeriod(start, end, extra = {}) {
   return {
     kind: 'cycle', key: start, start, end, days: daysBetween(start, end) + 1,
-    label: `${md(start)} – ${md(end)}`, short: md(start), ...extra,
+    label: `${md(start)} – ${md(end)}`, short: md(start), tick: `${Number(start.slice(5, 7))}/${Number(start.slice(8, 10))}`, ...extra,
   };
 }
 
