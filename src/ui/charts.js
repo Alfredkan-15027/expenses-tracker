@@ -101,7 +101,7 @@ export function trendChart(rows, { selected = rows.length - 1, budget = 0 } = {}
   const sel = rows[selected];
   return html`<div class="trend" data-trend>
     <div class="trend__readout">
-      <span class="trend__caption">${monthLabel(sel.ym)} · 支出</span>
+      <span class="trend__caption">${sel.label || monthLabel(sel.ym)} · 支出</span>
       <span class="trend__value">${formatMoney(sel.expense, { round: true })}</span>
       <span class="trend__sub">收入 ${formatMoney(sel.income, { round: true })}</span>
     </div>
@@ -114,12 +114,12 @@ export function trendChart(rows, { selected = rows.length - 1, budget = 0 } = {}
       ${budget > 0 ? html`<span class="trend__budget" style="bottom:${pct(budget / top)}"><em>预算</em></span>` : ''}
       <div class="trend__cols">
         ${rows.map((r, i) => html`<button type="button" class="trend__col ${i === selected ? 'is-selected' : ''}" data-trend-i="${i}"
-            aria-label="${monthLabel(r.ym)} 支出 ${formatMoney(r.expense, { round: true })}">
+            aria-label="${r.label || monthLabel(r.ym)} 支出 ${formatMoney(r.expense, { round: true })}">
           <span class="trend__bar ${r.expense > budget && budget > 0 ? 'is-over' : ''}" style="height:${pct(r.expense / top)}"></span>
         </button>`)}
       </div>
     </div>
-    <div class="trend__axis">${rows.map((r, i) => html`<span class="${i === selected ? 'is-selected' : ''}">${monthLabel(r.ym, false)}</span>`)}</div>
+    <div class="trend__axis">${rows.map((r, i) => html`<span class="${i === selected ? 'is-selected' : ''}">${r.short || monthLabel(r.ym, false)}</span>`)}</div>
   </div>`;
 }
 
