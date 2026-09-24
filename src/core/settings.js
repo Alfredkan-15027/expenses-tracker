@@ -19,6 +19,8 @@ export const DEFAULT_SETTINGS = {
   lastGdriveBackupAt: 0,
   invest: { ...DEFAULT_INVEST },
   healthIgnored: [],   // data-check findings the user marked as fine (issue ids)
+  // Budget period: calendar months, or pay cycles starting when 薪水 / 创业收入 arrives inside the window.
+  payCycle: { enabled: false, from: 15, to: 20 },
 };
 
 export const BACKUP_FREQS = [
@@ -36,6 +38,14 @@ export function backupDue(settings, now = Date.now()) {
   if (!last) return true;
   // A little slack so "daily" doesn't drift later every day.
   return now - last >= f.days * 86_400_000 - 2 * 3_600_000;
+}
+
+const dayNum = (v, d) => (Number.isInteger(v) && v >= 1 && v <= 31 ? v : d);
+
+function sanitizePayCycle(c) {
+  const from = dayNum(c?.from, 15);
+  const to = Math.max(from, dayNum(c?.to, 20));
+  return { enabled: c?.enabled === true, from, to };
 }
 
 const cents = (v) => (Number.isSafeInteger(v) && v >= 0 ? Math.min(v, MAX_CENTS) : 0);
@@ -59,6 +69,7 @@ export function sanitizeSettings(raw = {}) {
     gdriveConnected: s.gdriveConnected === true,
     lastGdriveBackupAt: Number.isFinite(s.lastGdriveBackupAt) && s.lastGdriveBackupAt > 0 ? s.lastGdriveBackupAt : 0,
     invest: sanitizeInvest(s.invest),
+    payCycle: sanitizePayCycle(s.payCycle),
     healthIgnored: Array.isArray(s.healthIgnored)
       ? [...new Set(s.healthIgnored.filter((x) => typeof x === 'string' && x.length <= 200))].slice(-300)
       : [],
