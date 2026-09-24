@@ -96,30 +96,34 @@ export function tierGauge({ value, tiers, label }) {
  * Tapping a column updates the readout (handled by the screen via data-trend-i).
  */
 export function trendChart(rows, { selected = rows.length - 1, budget = 0 } = {}) {
-  const maxVal = Math.max(1, ...rows.map((r) => r.expense), budget);
+  // Headroom above the budget line so its label never sits on the top value.
+  const maxVal = Math.max(1, ...rows.map((r) => r.expense), budget * 1.15);
   const top = niceMax(maxVal);
   const sel = rows[selected];
+  const budgetAt = budget > 0 ? budget / top : -1;
+  // A value label within ~15% of the budget line would collide with 「预算」: leave it out.
+  const gridLabel = (at, text) => (Math.abs(at - budgetAt) < 0.15 ? '' : html`<em>${text}</em>`);
   return html`<div class="trend" data-trend>
     <div class="trend__readout">
       <span class="trend__caption">${sel.label || monthLabel(sel.ym)} · 支出</span>
       <span class="trend__value">${formatMoney(sel.expense, { round: true })}</span>
-      <span class="trend__sub">收入 ${formatMoney(sel.income, { round: true })}</span>
+      <span class="trend__sub">收入 ${formatMoney(sel.income, { round: true })}${sel.partial ? ' · 这一期只记录了一部分' : ''}</span>
     </div>
     <div class="trend__plot">
       <div class="trend__grid">
-        <span class="trend__gridline" style="bottom:100%"><em>${formatCompact(top)}</em></span>
-        <span class="trend__gridline" style="bottom:50%"><em>${formatCompact(top / 2)}</em></span>
-        <span class="trend__gridline trend__gridline--base" style="bottom:0"><em>0</em></span>
+        <span class="trend__gridline" style="bottom:100%">${gridLabel(1, formatCompact(top))}</span>
+        <span class="trend__gridline" style="bottom:50%">${gridLabel(0.5, formatCompact(top / 2))}</span>
+        <span class="trend__gridline trend__gridline--base" style="bottom:0">${gridLabel(0, '0')}</span>
       </div>
-      ${budget > 0 ? html`<span class="trend__budget" style="bottom:${pct(budget / top)}"><em>预算</em></span>` : ''}
+      ${budget > 0 ? html`<span class="trend__budget" style="bottom:${pct(budgetAt)}"><em>预算</em></span>` : ''}
       <div class="trend__cols">
         ${rows.map((r, i) => html`<button type="button" class="trend__col ${i === selected ? 'is-selected' : ''}" data-trend-i="${i}"
-            aria-label="${r.label || monthLabel(r.ym)} 支出 ${formatMoney(r.expense, { round: true })}">
-          <span class="trend__bar ${r.expense > budget && budget > 0 ? 'is-over' : ''}" style="height:${pct(r.expense / top)}"></span>
+            aria-label="${r.label || monthLabel(r.ym)} 支出 ${formatMoney(r.expense, { round: true })}${r.partial ? '（只记录了一部分）' : ''}">
+          <span class="trend__bar ${r.expense > budget && budget > 0 ? 'is-over' : ''} ${r.partial ? 'is-partial' : ''}" style="height:${pct(r.expense / top)}"></span>
         </button>`)}
       </div>
     </div>
-    <div class="trend__axis">${rows.map((r, i) => html`<span class="${i === selected ? 'is-selected' : ''}">${r.short || monthLabel(r.ym, false)}</span>`)}</div>
+    <div class="trend__axis">${rows.map((r, i) => html`<span class="${i === selected ? 'is-selected' : ''}">${r.tick || r.short || monthLabel(r.ym, false)}</span>`)}</div>
   </div>`;
 }
 
