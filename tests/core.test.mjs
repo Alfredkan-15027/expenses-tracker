@@ -319,7 +319,7 @@ test('a fixed item charged today is set aside beforehand: it never makes today l
 });
 
 test('an overspent period has no allowance left; today is simply over, and business spending is reported', () => {
-  const settings = { expectedIncome: 300000, savingsTarget: 100000 }; // budget RM 2,000
+  const settings = { expectedIncome: 300000, savingsTarget: 100000, budgetIncludesBusiness: true }; // budget RM 2,000
   const txs = [tx('2026-09-02', 150000), tx('2026-09-03', 120000, 'business', { business: true }), tx('2026-09-10', 800)];
   const b = dailyBudget({ txs, settings, recurring: [], today: '2026-09-10' });
   assert.equal(b.status, 'overMonth');
@@ -419,4 +419,45 @@ test('recurring: switching a paused item back on resumes from now, it does not c
   assert.deepEqual(generateDue([early], '2026-11-05', mk).created.map((c) => c.date), ['2026-11-05']);
   // Paused and resumed within a month that was already charged: nothing changes
   assert.equal(resumeRecurring({ ...paused, lastMonth: '2026-10' }, '2026-10-07').lastMonth, '2026-10');
+});
+
+test('business spending counts against the allowance only when the switch is on', () => {
+  const base = { expectedIncome: 400000, savingsTarget: 100000 }; // budget RM 3,000 for a 30-day September
+  const rec = [
+    { id: 'rent', type: 'expense', amount: 60000, categoryId: 'housing', day: 28, active: true, startMonth: '2026-09', lastMonth: null },
+    { id: 'tool', type: 'expense', amount: 5000, categoryId: 'subscriptions', day: 23, business: true, active: true, startMonth: '2026-09', lastMonth: '2026-09' }, // charged today
+    { id: 'ads', type: 'expense', amount: 10000, categoryId: 'business', day: 29, active: true, startMonth: '2026-09', lastMonth: null },                       // still to come
+  ];
+  const txs = [
+    tx('2026-09-02', 30000), tx('2026-09-23', 1500),
+    tx('2026-09-03', 90000, 'business', { business: true }),
+    tx('2026-09-23', 5000, 'subscriptions', { business: true, recurringId: 'tool' }),
+  ];
+  // Off (the default): the RM 950 of business spending is tracked but outside the budget — and so are its fixed items
+  const off = dailyBudget({ txs, settings: sanitizeSettings(base), recurring: rec, today: '2026-09-23' });
+  assert.equal(off.countsBusiness, false);
+  assert.equal(off.spentMonth, 31500);
+  assert.equal(off.spentBusiness, 95000);
+  assert.equal(off.spentAll, 126500);
+  assert.equal(off.reserved, 60000);        // rent only: the business item due on the 29th is not reserved
+  assert.equal(off.fixedToday, 0);          // the business fixed charge of today is not part of the budget either
+  assert.equal(off.allowanceToday, Math.floor((300000 - 30000 - 60000) / 8));
+  assert.equal(off.leftToday, off.allowanceToday - 1500);
+  assert.equal(off.leftMonth, 300000 - 31500 - 60000);
+  // On: all of it is spent from the same budget, today's business fixed charge is set aside like any other
+  const on = dailyBudget({ txs, settings: sanitizeSettings({ ...base, budgetIncludesBusiness: true }), recurring: rec, today: '2026-09-23' });
+  assert.equal(on.countsBusiness, true);
+  assert.equal(on.spentMonth, 126500);
+  assert.equal(on.spentBusiness, 95000);
+  assert.equal(on.spentAll, 126500);
+  assert.equal(on.reserved, 70000);
+  assert.equal(on.fixedToday, 5000);
+  assert.equal(on.allowanceToday, Math.floor((300000 - 120000 - 5000 - 70000) / 8));
+  assert.equal(on.leftToday, on.allowanceToday - 1500);
+  assert.equal(on.leftMonth, 300000 - 126500 - 70000);
+  // Either way the money that left is still in the income / balance figures
+  assert.equal(off.savedMonth, on.savedMonth);
+  assert.equal(sanitizeSettings({}).budgetIncludesBusiness, false);
+  assert.equal(sanitizeSettings({ budgetIncludesBusiness: true }).budgetIncludesBusiness, true);
+  assert.equal(sanitizeSettings({ budgetIncludesBusiness: 'yes' }).budgetIncludesBusiness, false);
 });
