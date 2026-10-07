@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS = {
   gdriveConnected: false,
   lastGdriveBackupAt: 0,
   invest: { ...DEFAULT_INVEST },
+  budgetIncludesBusiness: false, // business spending counts against 今天还能花 / the period budget (off: tracked, but outside it)
   healthIgnored: [],   // data-check findings the user marked as fine (issue ids)
   // Budget period: calendar months, or pay cycles starting when 薪水 / 创业收入 arrives inside the window.
   payCycle: { enabled: false, from: 15, to: 20 },
@@ -72,6 +73,7 @@ export function sanitizeSettings(raw = {}) {
     lastGdriveBackupAt: Number.isFinite(s.lastGdriveBackupAt) && s.lastGdriveBackupAt > 0 ? s.lastGdriveBackupAt : 0,
     invest: sanitizeInvest(s.invest),
     payCycle: sanitizePayCycle(s.payCycle),
+    budgetIncludesBusiness: s.budgetIncludesBusiness === true,
     healthIgnored: Array.isArray(s.healthIgnored)
       ? [...new Set(s.healthIgnored.filter((x) => typeof x === 'string' && x.length <= 200))].slice(-300)
       : [],

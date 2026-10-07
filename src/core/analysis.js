@@ -14,6 +14,9 @@ export function isBusiness(tx) {
   return tx.type === 'expense' && (tx.business === true || tx.categoryId === 'business');
 }
 
+/** A fixed item that is a business cost (marked 创业, or filed under 创业支出). */
+export const isBusinessItem = (r) => !!r.business || r.categoryId === 'business';
+
 export function txInMonth(txs, ym) {
   return txs.filter((t) => monthOf(t.date) === ym);
 }
@@ -116,12 +119,11 @@ const nearAmount = (a, b) => Math.abs(a - b) <= Math.max(100, Math.round(b * 0.0
  */
 export function spendingModel({ txs, recurring = [], today, since = '' }) {
   const active = recurring.filter((r) => r.active && r.type === 'expense');
-  const bizItem = (r) => r.business || r.categoryId === 'business';
   const fixedBy = new Map();
   let fixedPersonal = 0;
   let fixedBusiness = 0;
   for (const r of active) {
-    if (bizItem(r)) { fixedBusiness += r.amount; continue; }
+    if (isBusinessItem(r)) { fixedBusiness += r.amount; continue; }
     fixedPersonal += r.amount;
     fixedBy.set(r.categoryId, (fixedBy.get(r.categoryId) || 0) + r.amount);
   }
@@ -195,12 +197,16 @@ export function periodBudget({ txs, settings, period: p }) {
  * in the period if not set.
  * Fixed items charged today were set aside beforehand, so they do not count against today's allowance
  * (spentTodayFree = what was spent on top of them).
+ * Business spending (and business fixed items) counts against the budget only when settings.budgetIncludesBusiness
+ * is on; otherwise it is tracked (spentBusiness) but kept outside the allowance. Either way it stays in the
+ * income / balance figures — that is money that really left.
  */
 export function dailyBudget({ txs, settings, recurring = [], today }) {
   const p = periodFor(today, { txs, settings, today });
   const dim = p.days;
   const day = daysBetween(p.start, today) + 1;
   const daysLeft = daysBetween(today, p.end) + 1;
+  const countsBusiness = settings.budgetIncludesBusiness === true;
   // Started tracking in the middle of the period: only the remaining part of the budget applies.
   const { budget, hasPlan, incomeBasis, usesExpected, target, start, prorated, summary: s } = periodBudget({ txs, settings, period: p });
 
@@ -210,19 +216,20 @@ export function dailyBudget({ txs, settings, recurring = [], today }) {
   let spentBusiness = 0;
   for (const t of txInPeriod(txs, p)) {
     if (t.type !== 'expense') continue;
+    // With a prorated budget, spending from before tracking started belongs to the unbudgeted part.
+    const inBudget = !prorated || t.date >= start;
+    const biz = isBusiness(t);
+    if (biz && inBudget) spentBusiness += t.amount;
+    if (biz && !countsBusiness) continue;
     if (t.date === today) {
       spentToday += t.amount;
       if (t.recurringId) fixedToday += t.amount;
     }
-    // With a prorated budget, spending from before tracking started belongs to the unbudgeted part.
-    if (!prorated || t.date >= start) {
-      spentMonth += t.amount;
-      if (isBusiness(t)) spentBusiness += t.amount;
-    }
+    if (inBudget) spentMonth += t.amount;
   }
   const spentBefore = spentMonth - spentToday;
   const spentTodayFree = spentToday - fixedToday;
-  const reserved = upcomingRecurring(recurring, today, p.end);
+  const reserved = upcomingRecurring(countsBusiness ? recurring : recurring.filter((r) => !isBusinessItem(r)), today, p.end);
   const remainingAtStart = budget - spentBefore - fixedToday - reserved;
   const allowanceToday = Math.floor(remainingAtStart / daysLeft);
   // Once the period is overspent there is no allowance left: today's spending is simply over.
@@ -232,7 +239,9 @@ export function dailyBudget({ txs, settings, recurring = [], today }) {
 
   return {
     ym: p.key, period: p, hasPlan, incomeBasis, usesExpected, budget, target, prorated, startDate: start,
-    spentToday, spentTodayFree, fixedToday, spentMonth, spentBusiness, reserved, daysLeft, dim, day,
+    countsBusiness, spentToday, spentTodayFree, fixedToday, spentMonth, spentBusiness,
+    spentAll: spentMonth + (countsBusiness ? 0 : spentBusiness),
+    reserved, daysLeft, dim, day,
     allowanceToday, leftToday, leftMonth,
     usedRatio: budget > 0 ? (spentMonth + reserved) / budget : 0,
     monthProgress: (tracked - daysLeft + 1) / tracked,
@@ -579,7 +588,9 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
     const share = s.expense > 0 ? s.business / s.expense : 0;
     out.push({
       tone: 'info', icon: 'business', title: `创业投入 ${formatMoney(s.business, { round: true })}`,
-      body: `占${THIS}总支出 ${formatPercent(share)}。这部分不算进生活费评估，但钱确实花出去了，所以「今天还能花」会把它算进${THIS}预算；记得保留单据，公司有钱时可以报销或作为股东贷款记录。`,
+      body: `占${THIS}总支出 ${formatPercent(share)}。这部分不算进生活费评估，${settings.budgetIncludesBusiness
+        ? `但钱确实花出去了，所以「今天还能花」会把它算进${THIS}预算（「设置 → 每月计划」可以关掉）`
+        : '也不占「今天还能花」（「设置 → 每月计划」可以改）'}；记得保留单据，公司有钱时可以报销或作为股东贷款记录。`,
     });
   }
 
