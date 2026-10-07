@@ -6,9 +6,10 @@ import {
   state, subscribe, saveSettings, saveRecurring, addTransaction, deleteTransaction, restoreTransaction,
 } from '../../data/store.js';
 import { checkData, checkedRange } from '../../core/health.js';
+import { repriceRecurring } from '../../core/recurring.js';
 import { categoryMap, unknownCategory } from '../../core/categories.js';
 import { formatMoney } from '../../core/money.js';
-import { addMonths, dayLabel, todayISO } from '../../core/dates.js';
+import { addMonths, dayLabel, dayOf, todayISO } from '../../core/dates.js';
 import { openEntrySheet } from './entry.js';
 import { openPlanSheet, openMoneySheet } from './plan.js';
 
@@ -20,7 +21,7 @@ export function healthIssues() {
   });
 }
 
-const FIX_LABEL = { delete: '删除多出来的', 'add-fixed': '补记这一笔', 'set-day': '改扣款日', unskip: '恢复本月自动记账', plan: '设定收入', savings: '填写存款' };
+const FIX_LABEL = { delete: '删除多出来的', 'add-fixed': '补记这一笔', 'set-day': '改扣款日', unskip: '恢复本月自动记账', 'update-fixed': '更新固定项目', plan: '设定收入', savings: '填写存款' };
 
 export function openHealthCheck() {
   let unsub = null;
@@ -98,6 +99,7 @@ export function openHealthCheck() {
 
 function fixLabel(fix) {
   if (fix.type === 'set-day') return `改成每月 ${fix.day} 号`;
+  if (fix.type === 'update-fixed') return `改成 ${formatMoney(fix.amount)} · 每月 ${dayOf(fix.date)} 号`;
   return FIX_LABEL[fix.type] || '修正';
 }
 
@@ -137,6 +139,14 @@ async function applyFix(fix) {
       await saveRecurring({ ...r, lastMonth: r.startMonth && r.startMonth >= cur ? null : addMonths(cur, -1) });
       haptic('success');
       toast(`「${r.note || '固定项目'}」本月会照常自动记账`, { icon: 'check', tone: 'success' });
+      break;
+    }
+    case 'update-fixed': {
+      const r = state.recurring.find((x) => x.id === fix.recurringId);
+      if (!r) break;
+      await saveRecurring(repriceRecurring(r, fix));
+      haptic('success');
+      toast(`「${fix.note || r.note}」改成每月 ${formatMoney(fix.amount)}`, { icon: 'check', tone: 'success' });
       break;
     }
     case 'plan': await openPlanSheet(); break;

@@ -6,7 +6,7 @@ import { state, saveRecurring, deleteRecurring, subscribe } from '../../data/sto
 import { activeCategories, categoryMap, unknownCategory } from '../../core/categories.js';
 import { centsToInput, formatMoney, toCents } from '../../core/money.js';
 import { dateInMonth, dayLabel, monthOf, todayISO } from '../../core/dates.js';
-import { newRecurring, nextDueDate, findManualMatch } from '../../core/recurring.js';
+import { newRecurring, nextDueDate, findManualMatch, resumeRecurring } from '../../core/recurring.js';
 import { newId } from '../../core/ids.js';
 
 export function openRecurringManager() {
@@ -163,9 +163,10 @@ export function openRecurringEditor(rec = null) {
     if (!cents) { haptic('error'); toast('请输入正确的金额', { icon: 'warning', tone: 'error' }); return; }
     if (!s.categoryId) { haptic('error'); toast('请选择类别', { icon: 'warning', tone: 'error' }); return; }
     const base = { type: s.type, amount: cents, categoryId: s.categoryId, note: s.note.trim().slice(0, 40), day: s.day, business: s.type === 'expense' && s.business };
-    const r = editing
-      ? { ...rec, ...base, active: s.active }
-      : newRecurring({ id: newId(), ...base, includeThisMonth: includeNow() }, today);
+    let r;
+    if (!editing) r = newRecurring({ id: newId(), ...base, includeThisMonth: includeNow() }, today);
+    else if (!rec.active && s.active) r = resumeRecurring({ ...rec, ...base }, today); // switched back on: resume, don't catch up
+    else r = { ...rec, ...base, active: s.active };
     await saveRecurring(r);
     haptic('success');
     toast(editing ? '已保存' : '已新增固定项目', { icon: 'check', tone: 'success' });
