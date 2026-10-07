@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS = {
   expectedIncome: 0,   // cents / month — basis for the daily budget
   savingsTarget: 0,    // cents / month
   currentSavings: 0,   // cents — used for the long-term goal and personal runway
+  currentSavingsAt: '', // ISO date it was last filled in (the figure does not follow new income / spending)
   goalName: '应急金',
   goalAmount: 0,       // cents — long-term savings goal
   profile: { ...DEFAULT_PROFILE },
@@ -58,6 +59,7 @@ export function sanitizeSettings(raw = {}) {
     expectedIncome: cents(s.expectedIncome),
     savingsTarget: cents(s.savingsTarget),
     currentSavings: cents(s.currentSavings),
+    currentSavingsAt: isValidISODate(s.currentSavingsAt) ? s.currentSavingsAt : '',
     goalName: text(s.goalName, 20, DEFAULT_SETTINGS.goalName) || DEFAULT_SETTINGS.goalName,
     goalAmount: cents(s.goalAmount),
     profile: normalizeProfile(s.profile),

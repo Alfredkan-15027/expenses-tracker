@@ -6,7 +6,7 @@ import { addDays, addMonths, dateInMonth, dayOf, daysInMonth, monthLabel, monthO
 
 export const CYCLE_INCOME_CATEGORIES = ['salary', 'bizincome'];
 const DAY_MS = 86_400_000;
-const STALE_DAYS = 70;   // no income for this long: stop stretching the old cycle
+const STALE_LATE_DAYS = 14; // income this many days past its expected end: it is missing, not late
 const LATE_EXTENSION = 6; // income later than the window: assume one more week
 
 export const daysBetween = (a, b) => Math.round((parseISO(b) - parseISO(a)) / DAY_MS);
@@ -47,31 +47,75 @@ export function payStarts(txs, cfg) {
   return [...first.values()].sort();
 }
 
-/** The period containing `date`. ctx = { txs, settings }. */
+/**
+ * Cycle boundaries: every recorded start, plus a guessed start on the first day of the window
+ *  - for a month between two recorded ones that has no income recorded (forgotten, or skipped), and
+ *  - for the months after the last recorded start once the next income is more than STALE_LATE_DAYS overdue
+ *    (it is then taken as missing rather than late).
+ * Without those a single cycle would swallow the missing month(s). Depends only on the data and the real
+ * `today`, never on which date is being asked about, so every period comes out the same however it is reached.
+ */
+function boundaries(txs, cfg, today) {
+  const recorded = payStarts(txs, cfg);
+  const out = [];
+  recorded.forEach((s, i) => {
+    out.push({ date: s, guessed: false });
+    const nextRecorded = recorded[i + 1];
+    if (!nextRecorded) return;
+    for (let m = addMonths(monthOf(s), 1); m < monthOf(nextRecorded); m = addMonths(m, 1)) {
+      out.push({ date: dateInMonth(m, cfg.from), guessed: true });
+    }
+  });
+  const last = recorded[recorded.length - 1];
+  if (last && today > addDays(expectedEnd(last, cfg), STALE_LATE_DAYS)) {
+    for (let m = addMonths(monthOf(last), 1), n = 0; dateInMonth(m, cfg.from) <= today && n < 240; m = addMonths(m, 1), n += 1) {
+      out.push({ date: dateInMonth(m, cfg.from), guessed: true });
+    }
+  }
+  return out;
+}
+
+/** Where a cycle that began on `start` is expected to end: the day before the last day of next month's window. */
+const expectedEnd = (start, cfg) => addDays(dateInMonth(addMonths(monthOf(start), 1), cfg.to), -1);
+
+/** The cycle that is still running: its next income has not arrived (yet). */
+function openPeriod(start, today, cfg, estimated) {
+  let end = expectedEnd(start, cfg);
+  let overdue = false;
+  if (today > end) { end = addDays(today, LATE_EXTENSION); overdue = true; }
+  return cyclePeriod(start, end, { open: true, estimated, overdue, nextPay: addDays(end, 1) });
+}
+
+/**
+ * A stretch before the first recorded income: assume it came on the first day of the window. Such a period lasts
+ * one calendar month (window start to window start) — or until the first recorded income.
+ */
+function guessedPeriod(date, cfg, nextStart = '') {
+  const m = dayOf(date) >= cfg.from ? monthOf(date) : addMonths(monthOf(date), -1);
+  const start = dateInMonth(m, cfg.from);
+  const monthEnd = addDays(dateInMonth(addMonths(m, 1), cfg.from), -1);
+  if (!nextStart) return cyclePeriod(start, monthEnd, { open: false, estimated: true });
+  const beforeNext = addDays(nextStart, -1);
+  return cyclePeriod(start, monthEnd < beforeNext ? monthEnd : beforeNext, { open: false, estimated: true });
+}
+
+/**
+ * The period containing `date`. ctx = { txs, settings, today }; `today` (default: `date`) is what decides whether
+ * the running cycle is still waiting for income or is overdue.
+ */
 export function periodFor(date, ctx) {
   const cfg = payCycle(ctx.settings);
   if (!cfg) return monthPeriod(monthOf(date));
-  const starts = payStarts(ctx.txs, cfg);
-  let start = null;
+  const today = ctx.today || date;
+  let cur = null;
   let next = null;
-  for (const s of starts) {
-    if (s <= date) start = s;
-    else { next = s; break; }
+  for (const b of boundaries(ctx.txs, cfg, today)) {
+    if (b.date <= date) cur = b;
+    else { next = b; break; }
   }
-  let estimated = false;
-  if (!start || daysBetween(start, date) > STALE_DAYS) {
-    // No income recorded yet for this stretch: assume it came on the first day of the window.
-    const m = dayOf(date) >= cfg.from ? monthOf(date) : addMonths(monthOf(date), -1);
-    const guess = dateInMonth(m, cfg.from);
-    start = start && start > guess ? start : guess;
-    estimated = true;
-  }
-  if (next) return cyclePeriod(start, addDays(next, -1), { open: false, estimated });
-  // Open cycle: runs until the day before the last day of next month's window.
-  let end = addDays(dateInMonth(addMonths(monthOf(start), 1), cfg.to), -1);
-  let overdue = false;
-  if (date > end) { end = addDays(date, LATE_EXTENSION); overdue = true; }
-  return cyclePeriod(start, end, { open: true, estimated, overdue, nextPay: addDays(end, 1) });
+  if (!cur) return guessedPeriod(date, cfg, next?.date || '');
+  if (next) return cyclePeriod(cur.date, addDays(next.date, -1), { open: false, estimated: cur.guessed });
+  return openPeriod(cur.date, today, cfg, cur.guessed);
 }
 
 /** Resolve a stored key: 'YYYY-MM' → month, 'YYYY-MM-DD' → the period containing that day. */

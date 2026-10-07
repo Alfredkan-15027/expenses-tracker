@@ -12,6 +12,9 @@ const HUGE = 2_000_000;             // any single entry of RM 20,000+ (a slipped
 
 const near = (a, b) => Math.abs(a - b) <= Math.max(100, Math.round(b * 0.05));
 
+/** The brand-like first word of a note ("Claude Pro 订阅" → "claude"), or '' when it has no Latin word. */
+const firstWord = (note) => (String(note || '').toLowerCase().match(/[a-z][a-z0-9]{2,}/) || [''])[0];
+
 function median(list) {
   const s = [...list].sort((a, b) => a - b);
   const m = s.length >> 1;
@@ -116,6 +119,27 @@ export function checkData({ transactions: txs, categories, recurring = [], setti
       }
     }
     const last = own.sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+    // A newer hand-typed entry that looks like the same service at another amount: the plan or price changed, but
+    // the fixed item still logs (and reserves, and counts toward runway) the old amount.
+    const word = firstWord(r.note);
+    if (word && r.type === 'expense') {
+      const after = last ? last.date : `${r.startMonth || cur}-01`;
+      const others = recurring.filter((x) => x.id !== r.id && x.active);
+      const changed = manual
+        .filter((u) => u.type === r.type && u.categoryId === r.categoryId && !!u.business === !!r.business
+          && u.date > after && firstWord(u.note) === word && !near(u.amount, r.amount)
+          && !others.some((x) => x.categoryId === u.categoryId && near(u.amount, x.amount)))
+        .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+      if (changed) {
+        out.push({
+          id: `fixchg:${r.id}:${changed.id}`, level: 'info', kind: 'fixed-changed',
+          title: `「${name}」可能已经改成「${changed.note}」`,
+          body: `固定项目还是每月 ${formatMoney(r.amount)}（${r.day} 号），但${dayLabel(changed.date, today)}你另外记了「${changed.note}」${formatMoney(changed.amount)}。如果是升级或涨价，把固定项目改成新的金额，每月才会自动记对，Runway 也才会准；如果是另外一笔，可以忽略。`,
+          txIds: [changed.id],
+          fix: { type: 'update-fixed', recurringId: r.id, amount: changed.amount, note: changed.note, date: changed.date },
+        });
+      }
+    }
     if (last) {
       const expected = dateInMonth(monthOf(last.date), r.day);
       const realDay = dayOf(last.date);

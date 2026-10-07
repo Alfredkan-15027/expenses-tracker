@@ -1,5 +1,5 @@
 // Fixed monthly items (rent, phone plan, subscriptions, salary…) that are logged automatically.
-import { addMonths, dateInMonth, monthOf, monthRange } from './dates.js';
+import { addMonths, dateInMonth, dayOf, monthOf, monthRange } from './dates.js';
 
 const MAX_BACKFILL_MONTHS = 12;
 
@@ -62,6 +62,25 @@ export function findManualMatch(transactions, { type, categoryId, amount }, toda
   const tolerance = Math.max(100, Math.round(amount * 0.05));
   return transactions.find((t) => !t.recurringId && t.type === type && t.categoryId === categoryId
     && monthOf(t.date) === cur && Math.abs(t.amount - amount) <= tolerance) || null;
+}
+
+/**
+ * Switch a paused item back on. It resumes from now: charges that fell due while it was paused are not logged
+ * afterwards (without this the app would "catch up" every paused month, up to a year of them).
+ */
+export function resumeRecurring(r, today) {
+  const cur = monthOf(today);
+  const floor = dateInMonth(cur, r.day) <= today ? cur : addMonths(cur, -1);
+  return { ...r, active: true, lastMonth: !r.lastMonth || r.lastMonth < floor ? floor : r.lastMonth };
+}
+
+/**
+ * A hand-typed entry shows what the fixed item costs now (plan upgrade, price rise): take its amount, name and
+ * day, and don't log that entry's month again.
+ */
+export function repriceRecurring(r, { amount, note, date }) {
+  const m = monthOf(date);
+  return { ...r, amount, note: note || r.note, day: dayOf(date), lastMonth: !r.lastMonth || r.lastMonth < m ? m : r.lastMonth };
 }
 
 export function nextDueDate(r, today) {

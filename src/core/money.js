@@ -35,13 +35,18 @@ export function moneyParts(cents) {
 
 /**
  * Format cents as "RM 1,234.50".
- * opts.sign: prefix "+" for positive values. opts.round: drop decimals.
+ * opts.sign: prefix "+" for positive values. opts.round: whole ringgit (rounded, not cut off).
  */
 export function formatMoney(cents, opts = {}) {
-  const { sign, int, dec } = moneyParts(cents ?? 0);
-  const plus = opts.sign && cents > 0 ? '+' : '';
-  const body = opts.round ? int : `${int}.${dec}`;
-  return `${sign || plus}${CURRENCY} ${body}`;
+  const value = cents ?? 0;
+  const plus = opts.sign && value > 0 ? '+' : '';
+  if (opts.round) {
+    // Whole ringgit, rounded to the nearest (RM 5,429.97 → RM 5,430); never "−RM 0".
+    const rm = Math.round(Math.abs(value) / 100);
+    return `${value < 0 && rm > 0 ? '−' : plus}${CURRENCY} ${groupFmt.format(rm)}`;
+  }
+  const { sign, int, dec } = moneyParts(value);
+  return `${sign || plus}${CURRENCY} ${int}.${dec}`;
 }
 
 /** Compact form for charts: RM 1.2k, RM 850. */
