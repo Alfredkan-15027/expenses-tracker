@@ -26,7 +26,8 @@ GitHub 帐号已开启 **Keep my email addresses private** 与 **Block command l
    - **命令行**：`git push origin main`（第一次会弹出浏览器让你登录 GitHub 授权 Git Credential Manager，之后不用再登录）
    - **网页**：在仓库页面「Add file → Upload files」
 4. 约 1 分钟后 GitHub Pages 自动更新
-5. iPhone 上的 App 会在**下一次打开时**自动拿到新版本（离线缓存会在后台更新）；如果改了 `sw.js`，App 会提示「有新版本可用」
+5. iPhone 上的 App 打开时先用离线缓存（所以很快），同时在后台下载新版本。新版本下载好后，App 会弹出「有新版本可用 · 更新」，点「更新」立刻换成新版（不用再解锁一次）；不点也没关系，下次打开就是新版。
+   App 每次回到前台也会（最多每 10 分钟一次）检查有没有新版本。每次发布都要把 `sw.js` 的 `VERSION` 和「设置」页的 `APP_VERSION` 一起改（测试会检查两者一致）
 
 ## 交给 Codex 做观感设计
 
