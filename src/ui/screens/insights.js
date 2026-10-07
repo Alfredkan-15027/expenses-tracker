@@ -149,7 +149,7 @@ const screen = {
       <section class="section">
         <h2 class="section__title">${cycle ? '近 6 个收入周期' : '近 6 个月'}</h2>
         <div class="card">
-          ${trendChart(rows, { selected: Math.min(tIdx, rows.length - 1), budget: plan.hasPlan ? plan.budget : 0 })}
+          ${trendChart(rows, { selected: Math.min(tIdx, rows.length - 1), budget: plan.hasPlan ? plan.budget : 0, personalOnly: !settings.budgetIncludesBusiness })}
         </div>
       </section>
 

@@ -17,7 +17,7 @@ import { setupPin, confirmPin } from '../sheets/lockscreen.js';
 import { hasBackupKey } from '../../data/cloudbackup.js';
 import { openHealthCheck, healthIssues } from '../sheets/health.js';
 
-export const APP_VERSION = '1.3.2';
+export const APP_VERSION = '1.3.3';
 
 let lockInfo = { enabled: false, pinLength: 6, autoLockMs: 60_000, biometric: false };
 let faceIdAvailable = false;
@@ -74,8 +74,9 @@ const screen = {
           ${row({ action: 'income', glyph: 'salary', color: 'green', title: '预计每月收入', value: s.expectedIncome ? formatMoney(s.expectedIncome, { round: true }) : '未设定' })}
           ${row({ action: 'cycle', glyph: 'calendar', color: 'orange', title: '预算周期', value: s.payCycle.enabled ? `收入日 ${s.payCycle.from}–${s.payCycle.to} 号` : '日历月', sub: s.payCycle.enabled ? '从收到薪水／创业收入那天开始' : '每月 1 号开始' })}
           ${row({ action: 'target', glyph: 'target', color: 'blue', title: '每月存款目标', value: s.savingsTarget ? formatMoney(s.savingsTarget, { round: true }) : '未设定' })}
+          ${toggleRow({ attr: 'bizbudget', glyph: 'business', color: 'mint', title: '创业支出占用额度', sub: s.budgetIncludesBusiness ? '创业支出也算进「今天还能花」和本期预算' : '创业支出另外算，不占「今天还能花」和本期预算', checked: s.budgetIncludesBusiness })}
         </ul>
-        <p class="section__footer">${budget ? `${s.payCycle.enabled ? '每个收入周期' : '每月'}可支配 ${formatMoney(budget, { round: true })}（收入 − 存款目标），「今天还能花」按这个数字计算。` : '填入收入后，「今天」页会显示每天还能花多少。'}</p>
+        <p class="section__footer">${budget ? `${s.payCycle.enabled ? '每个收入周期' : '每月'}可支配 ${formatMoney(budget, { round: true })}（收入 − 存款目标），「今天还能花」按这个数字计算${s.budgetIncludesBusiness ? '，创业支出也会占用' : '，创业支出不占用（分析页仍会单独列出）'}。` : '填入收入后，「今天」页会显示每天还能花多少。'}</p>
       </section>
 
       <section class="section">
@@ -165,6 +166,11 @@ const screen = {
     const t = e.target.closest('[data-toggle]');
     if (t) {
       e.preventDefault();
+      if (t.dataset.toggle === 'bizbudget') { // a budget choice, not a security setting: works in demo mode too
+        haptic();
+        await saveSettings({ budgetIncludesBusiness: !ctx.state.settings.budgetIncludesBusiness });
+        return;
+      }
       if (ctx.demo) { toast('演示模式不能更改安全设定', { icon: 'info' }); return; }
       await onToggle(t.dataset.toggle, ctx);
       lockInfo = await lock.getInfo();

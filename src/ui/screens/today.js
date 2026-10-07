@@ -142,7 +142,7 @@ function hero(b) {
   const label = overPeriod ? `${THIS}已超支` : over ? '今天已超出' : '今天还能花';
   const amount = overPeriod ? -b.leftMonth : Math.abs(b.leftToday);
   const tone = overPeriod ? 'bad' : over ? 'warn' : 'good';
-  const personal = b.spentMonth - b.spentBusiness;
+  const personal = b.spentAll - b.spentBusiness;
   return html`<section class="card card--hero" data-tone="${tone}">
     <span class="card__eyebrow">${label}</span>
     <div class="hero-amount">${money(amount, { cls: 'money--hero' })}</div>
@@ -160,13 +160,16 @@ function hero(b) {
     ${b.prorated ? html`<p class="hero-note">${icon('info')} 从${dayLabel(b.startDate)}开始记录，${THIS}预算已按剩余天数折算为 ${formatMoney(b.budget, { round: true })}</p>` : ''}
     ${b.reserved > 0 ? html`<p class="hero-note">${icon('clock')} 已预留${THIS}未到期的固定支出 ${formatMoney(b.reserved, { round: true })}</p>` : ''}
     ${b.fixedToday > 0 ? html`<p class="hero-note">${icon('clock')} 今天自动记的固定支出 ${formatMoney(b.fixedToday, { round: true })} 已提前预留，不占今天的额度</p>` : ''}
-    ${b.spentBusiness > 0 ? html`<p class="hero-note">${icon('business')} ${THIS}已花 ${formatMoney(b.spentMonth, { round: true })}：个人 ${formatMoney(personal, { round: true })} + 创业 ${formatMoney(b.spentBusiness, { round: true })}（都算进预算）</p>` : ''}
+    ${b.spentBusiness > 0 ? html`<p class="hero-note">${icon('business')} ${b.countsBusiness
+      ? `${THIS}已花 ${formatMoney(b.spentAll, { round: true })}：个人 ${formatMoney(personal, { round: true })} + 创业 ${formatMoney(b.spentBusiness, { round: true })}（都算进预算）`
+      : `${THIS}创业支出 ${formatMoney(b.spentBusiness, { round: true })} 不占预算（个人 ${formatMoney(personal, { round: true })}）`}</p>` : ''}
     ${overPeriod ? html`<p class="hero-note hero-note--bad">${icon('warning')} ${THIS}预算已用完，接下来每一笔都会动用存款目标。</p>` : ''}
   </section>`;
 }
 
 function monthCard(b, settings) {
   const THIS = b.period.kind === 'cycle' ? '本期' : '本月';
+  const bizOutside = !b.countsBusiness && b.spentBusiness > 0; // business spending is tracked but not part of the budget
   const target = settings.savingsTarget;
   const saveRatio = target > 0 ? Math.max(0, b.savedMonth) / target : 0;
   const spendRatio = b.budget > 0 ? b.spentMonth / b.budget : 0;
@@ -179,15 +182,15 @@ function monthCard(b, settings) {
       ])}
       <ul class="rings__legend">
         <li class="rings__item" data-tone="${spendTone}">
-          <span class="rings__label">${THIS}支出</span>
+          <span class="rings__label">${bizOutside ? `${THIS}个人支出` : `${THIS}支出`}</span>
           <span class="rings__value">${formatMoney(b.spentMonth, { round: true })}</span>
-          <span class="rings__sub">${b.budget > 0 ? `预算的 ${formatPercent(spendRatio)}` : '未设定预算'}</span>
+          <span class="rings__sub">${b.budget > 0 ? `预算的 ${formatPercent(spendRatio)}` : '未设定预算'}${bizOutside ? ` · 另有创业 ${formatMoney(b.spentBusiness, { round: true })}` : ''}</span>
         </li>
         <li class="rings__item" data-tone="save">
           <span class="rings__label">${THIS}结余</span>
           <span class="rings__value">${formatMoney(b.savedMonth, { round: true })}</span>
           <span class="rings__sub">${target > 0
-            ? (b.incomeMonth > 0 ? `存款目标 ${formatMoney(target, { round: true })} · ${formatPercent(Math.min(saveRatio, 9.99))}` : '记下收入后显示进度')
+            ? (b.incomeMonth > 0 ? `存款目标 ${formatMoney(target, { round: true })} · ${formatPercent(Math.min(saveRatio, 9.99))}${bizOutside ? ' · 已扣创业' : ''}` : '记下收入后显示进度')
             : '未设定存款目标'}</span>
         </li>
       </ul>
