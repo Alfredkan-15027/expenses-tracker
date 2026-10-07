@@ -95,9 +95,12 @@ export function tierGauge({ value, tiers, label }) {
  * Apple Health–style monthly bars. rows: [{ ym, expense, income }].
  * Tapping a column updates the readout (handled by the screen via data-trend-i).
  */
-export function trendChart(rows, { selected = rows.length - 1, budget = 0 } = {}) {
+export function trendChart(rows, { selected = rows.length - 1, budget = 0, personalOnly = false } = {}) {
+  // personalOnly: the bars measure personal spending (business spending is outside the budget they are held against).
+  const value = (r) => (personalOnly ? r.personal : r.expense);
+  const what = personalOnly ? '个人支出' : '支出';
   // Headroom above the budget line so its label never sits on the top value.
-  const maxVal = Math.max(1, ...rows.map((r) => r.expense), budget * 1.15);
+  const maxVal = Math.max(1, ...rows.map(value), budget * 1.15);
   const top = niceMax(maxVal);
   const sel = rows[selected];
   const budgetAt = budget > 0 ? budget / top : -1;
@@ -105,9 +108,9 @@ export function trendChart(rows, { selected = rows.length - 1, budget = 0 } = {}
   const gridLabel = (at, text) => (Math.abs(at - budgetAt) < 0.15 ? '' : html`<em>${text}</em>`);
   return html`<div class="trend" data-trend>
     <div class="trend__readout">
-      <span class="trend__caption">${sel.label || monthLabel(sel.ym)} · 支出</span>
-      <span class="trend__value">${formatMoney(sel.expense, { round: true })}</span>
-      <span class="trend__sub">收入 ${formatMoney(sel.income, { round: true })}${sel.partial ? ' · 这一期只记录了一部分' : ''}</span>
+      <span class="trend__caption">${sel.label || monthLabel(sel.ym)} · ${what}</span>
+      <span class="trend__value">${formatMoney(value(sel), { round: true })}</span>
+      <span class="trend__sub">收入 ${formatMoney(sel.income, { round: true })}${personalOnly && sel.business > 0 ? ` · 另有创业 ${formatMoney(sel.business, { round: true })}` : ''}${sel.partial ? ' · 这一期只记录了一部分' : ''}</span>
     </div>
     <div class="trend__plot">
       <div class="trend__grid">
@@ -118,8 +121,8 @@ export function trendChart(rows, { selected = rows.length - 1, budget = 0 } = {}
       ${budget > 0 ? html`<span class="trend__budget" style="bottom:${pct(budgetAt)}"><em>预算</em></span>` : ''}
       <div class="trend__cols">
         ${rows.map((r, i) => html`<button type="button" class="trend__col ${i === selected ? 'is-selected' : ''}" data-trend-i="${i}"
-            aria-label="${r.label || monthLabel(r.ym)} 支出 ${formatMoney(r.expense, { round: true })}${r.partial ? '（只记录了一部分）' : ''}">
-          <span class="trend__bar ${r.expense > budget && budget > 0 ? 'is-over' : ''} ${r.partial ? 'is-partial' : ''}" style="height:${pct(r.expense / top)}"></span>
+            aria-label="${r.label || monthLabel(r.ym)} ${what} ${formatMoney(value(r), { round: true })}${r.partial ? '（只记录了一部分）' : ''}">
+          <span class="trend__bar ${value(r) > budget && budget > 0 ? 'is-over' : ''} ${r.partial ? 'is-partial' : ''}" style="height:${pct(value(r) / top)}"></span>
         </button>`)}
       </div>
     </div>
