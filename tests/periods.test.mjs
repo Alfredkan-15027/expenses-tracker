@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { periodFor, prevPeriod, payStarts } from '../src/core/periods.js';
+import { periodFor, periodByKey, periodsEndingWith, prevPeriod, nextPeriod, payStarts } from '../src/core/periods.js';
 import { dailyBudget, evaluatePeriod, comparePeriods, buildInsights, trendPeriods } from '../src/core/analysis.js';
 import { DEFAULT_CATEGORIES } from '../src/core/categories.js';
 import { sanitizeSettings } from '../src/core/settings.js';
@@ -126,4 +126,76 @@ test('calendar months stay the default', () => {
   assert.equal(plain.payCycle.enabled, false);
   assert.equal(periodFor('2026-09-24', { txs: [], settings: plain }).key, '2026-09');
   assert.deepEqual(sanitizeSettings({ payCycle: { enabled: true, from: 20, to: 10 } }).payCycle, { enabled: true, from: 20, to: 20 });
+});
+
+test('a month with no income recorded gets its own estimated cycle instead of being swallowed', () => {
+  const txs = [inc('2026-07-16', RM(5000)), inc('2026-10-17', RM(5000))]; // August and September forgotten
+  const ctx = { txs, settings, today: '2026-10-20' };
+  const aug = periodFor('2026-08-20', ctx);
+  assert.deepEqual([aug.start, aug.end, aug.estimated], ['2026-08-15', '2026-09-14', true]);
+  assert.deepEqual([periodFor('2026-07-20', ctx).start, periodFor('2026-07-20', ctx).end, periodFor('2026-07-20', ctx).estimated], ['2026-07-16', '2026-08-14', false]);
+  assert.equal(periodFor('2026-09-20', ctx).end, '2026-10-16');
+  assert.ok(periodsEndingWith(periodFor('2026-10-20', ctx), 5, ctx).every((q) => q.days <= 35));
+});
+
+test('before the first recorded income, periods are guessed one calendar month at a time', () => {
+  const txs = [inc('2026-09-15', RM(5000))];
+  const ctx = { txs, settings, today: '2026-09-24' };
+  assert.deepEqual([periodFor('2026-07-20', ctx).start, periodFor('2026-07-20', ctx).end], ['2026-07-15', '2026-08-14']);
+  assert.deepEqual([periodFor('2026-08-20', ctx).start, periodFor('2026-08-20', ctx).end], ['2026-08-15', '2026-09-14']);
+  // and the period behind a stored key is the same one (the Analysis page navigates by key)
+  const p = periodFor('2026-07-20', ctx);
+  assert.deepEqual(periodByKey(p.key, ctx), p);
+});
+
+test('income missing for two weeks past its window is taken as missing, not late — consistently', () => {
+  const txs = [inc('2026-09-15', RM(5000))]; // expected next on the 20th; nothing since
+  const late = (today) => periodFor(today, { txs, settings, today });
+  assert.equal(late('2026-10-25').overdue, true);                       // 5 days late: stretch the cycle
+  assert.equal(late('2026-10-25').start, '2026-09-15');
+  const stale = late('2026-11-05');                                     // 17 days late: a new, guessed cycle
+  assert.deepEqual([stale.start, stale.estimated, stale.open], ['2026-10-15', true, true]);
+  // it is the same period whichever way it is reached, and the one before it ends where it starts
+  const ctx = { txs, settings, today: '2026-11-05' };
+  assert.deepEqual(periodFor(stale.start, ctx), stale);
+  assert.deepEqual(periodByKey(stale.key, ctx), stale);
+  const before = prevPeriod(stale, ctx);
+  assert.deepEqual([before.start, before.end], ['2026-09-15', '2026-10-14']);
+  // while the running cycle is overdue it is also reachable from its own start
+  const ctx2 = { txs, settings, today: '2026-10-25' };
+  assert.deepEqual(periodFor('2026-09-15', ctx2), late('2026-10-25'));
+});
+
+test('every period is found again from its start, sits right after the one before, and nothing overlaps (seeded sweep)', () => {
+  let seed = 20261007;
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
+  const day = (iso, n) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  let checked = 0;
+  for (let iter = 0; iter < 80; iter += 1) {
+    const from = ri(1, 25);
+    const to = ri(from, Math.min(31, from + 10));
+    const cfg = sanitizeSettings({ payCycle: { enabled: true, from, to } });
+    const txs = [];
+    for (let m = 0; m < 8; m += 1) {
+      if (rnd() < 0.25) continue; // forgotten month
+      const ym = `2026-${String(3 + m).padStart(2, '0')}`;
+      const d = rnd() < 0.8 ? ri(from, to) : ri(1, 28);
+      txs.push(inc(`${ym}-${String(Math.min(d, 28)).padStart(2, '0')}`, RM(1000), rnd() < 0.5 ? 'salary' : 'bizincome'));
+    }
+    for (let t = 0; t < 3; t += 1) {
+      const today = day('2026-03-01', ri(0, 290));
+      const ctx = { txs, settings: cfg, today };
+      for (let d = '2026-02-25'; d <= today; d = day(d, 5)) {
+        const p = periodFor(d, ctx);
+        checked += 1;
+        assert.ok(p.start <= d && d <= p.end, `${d} outside ${p.start}–${p.end}`);
+        const again = periodFor(p.start, ctx);
+        assert.deepEqual([again.start, again.end], [p.start, p.end], `not reproducible from its start (${from}-${to}, today ${today})`);
+        assert.equal(prevPeriod(p, ctx).end, day(p.start, -1), 'previous period does not end the day before');
+        if (!p.open) assert.equal(nextPeriod(p, ctx).start, day(p.end, 1), 'next period does not start the day after');
+      }
+    }
+  }
+  assert.ok(checked > 3000);
 });

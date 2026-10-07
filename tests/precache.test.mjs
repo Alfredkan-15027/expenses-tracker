@@ -31,3 +31,10 @@ test('manifest and index reference existing icons', () => {
   const html = readFileSync('index.html', 'utf8');
   for (const [, href] of html.matchAll(/(?:href|src)="([^"]+)"/g)) assert.ok(existsSync(href), href);
 });
+
+test('the service worker and the app report the same version (the page offers an update when they differ)', () => {
+  const swVersion = sw.match(/const VERSION = '(v[\d.]+)'/)?.[1];
+  const appVersion = readFileSync('src/ui/screens/settings.js', 'utf8').match(/APP_VERSION = '([\d.]+)'/)?.[1];
+  assert.ok(swVersion && appVersion, 'version strings not found');
+  assert.equal(swVersion, `v${appVersion}`);
+});

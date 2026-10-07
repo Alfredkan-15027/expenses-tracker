@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { toCents, formatMoney, moneyParts, centsToInput } from '../src/core/money.js';
-import { addMonths, daysInMonth, dateInMonth, dayLabel, isValidISODate, monthRange } from '../src/core/dates.js';
+import { addDays as addDaysISO, addMonths, daysInMonth, dateInMonth, dayLabel, isValidISODate, monthRange, todayISO } from '../src/core/dates.js';
+import { monthPeriod } from '../src/core/periods.js';
 import { DEFAULT_CATEGORIES } from '../src/core/categories.js';
 import {
   monthSummary, dailyBudget, compareMonths, evaluateMonth, trend, runway, quickPicks, buildInsights, upcomingRecurring, spendingModel,
-  trackingStart,
+  trackingStart, periodBudget, categoryStatus,
 } from '../src/core/analysis.js';
-import { generateDue, newRecurring, nextDueDate, findManualMatch } from '../src/core/recurring.js';
+import { generateDue, newRecurring, nextDueDate, findManualMatch, resumeRecurring } from '../src/core/recurring.js';
 import { buildBackup, parseBackup, toCSV } from '../src/core/backup.js';
 import { sanitizeSettings } from '../src/core/settings.js';
 import { livingCostTiers, categoryRanges } from '../src/core/benchmarks.js';
@@ -295,4 +296,127 @@ test('a stray entry in the month before tracking does not drive runway or the mo
   assert.equal(compareMonths(txs, '2026-10', DEFAULT_CATEGORIES, since).comparable, true);
   const ins = buildInsights({ txs, ym: '2026-09', categories: DEFAULT_CATEGORIES, profile: {}, settings, today: '2026-09-23' });
   assert.ok(!ins.some((i) => i.title === '与上月相比'));
+});
+
+test('a fixed item charged today is set aside beforehand: it never makes today look overspent', () => {
+  const settings = { expectedIncome: 400000, savingsTarget: 100000 }; // budget RM 3,000 for a 30-day September
+  const rent = { id: 'rent', type: 'expense', amount: 90000, categoryId: 'housing', day: 20, active: true, startMonth: '2026-09', lastMonth: null };
+  const before = dailyBudget({ txs: [tx('2026-09-10', 30000)], settings, recurring: [rent], today: '2026-09-19' });
+  assert.equal(before.reserved, 90000);
+  // The day it is charged: the app logs it (recurringId) and nothing else was spent.
+  const charged = [tx('2026-09-10', 30000), tx('2026-09-20', 90000, 'housing', { recurringId: 'rent' })];
+  const day = dailyBudget({ txs: charged, settings, recurring: [{ ...rent, lastMonth: '2026-09' }], today: '2026-09-20' });
+  assert.equal(day.fixedToday, 90000);
+  assert.equal(day.spentToday, 90000);          // it did leave the account today …
+  assert.equal(day.spentTodayFree, 0);          // … but it was already reserved, so it is not today's spending
+  assert.equal(day.leftToday, day.allowanceToday);
+  assert.equal(day.status, 'ok');
+  assert.equal(day.allowanceToday, Math.floor((300000 - 30000 - 90000) / 11)); // 20…30 Sept
+  // Money spent on top of it counts as today's
+  const more = dailyBudget({ txs: [...charged, tx('2026-09-20', 1500)], settings, recurring: [{ ...rent, lastMonth: '2026-09' }], today: '2026-09-20' });
+  assert.equal(more.spentTodayFree, 1500);
+  assert.equal(more.leftToday, more.allowanceToday - 1500);
+});
+
+test('an overspent period has no allowance left; today is simply over, and business spending is reported', () => {
+  const settings = { expectedIncome: 300000, savingsTarget: 100000 }; // budget RM 2,000
+  const txs = [tx('2026-09-02', 150000), tx('2026-09-03', 120000, 'business', { business: true }), tx('2026-09-10', 800)];
+  const b = dailyBudget({ txs, settings, recurring: [], today: '2026-09-10' });
+  assert.equal(b.status, 'overMonth');
+  assert.ok(b.allowanceToday < 0);
+  assert.equal(b.spentBusiness, 120000);
+  assert.equal(b.leftMonth, 200000 - 150000 - 120000 - 800);
+  assert.equal(b.leftToday, -800); // not "allowance (negative) − spent": there is nothing to spend, the 8 is over
+});
+
+test('periodBudget gives a past period its own budget (and the chart line does not need a fake "today")', () => {
+  const settings = { expectedIncome: 500000, savingsTarget: 100000, startDate: '2026-09-23' };
+  const p = monthPeriod('2026-08');
+  assert.equal(periodBudget({ txs: [], settings, period: p }).budget, 400000);
+  assert.equal(periodBudget({ txs: [], settings: {}, period: p }).hasPlan, false);
+});
+
+test('spendingModel: entries of a fixed item that was deleted or paused are not day-to-day pace', () => {
+  const rec = [{ id: 'live', type: 'expense', amount: 5000, categoryId: 'subscriptions', day: 5, active: true }];
+  const txs = [
+    tx('2026-09-05', 5000, 'subscriptions', { recurringId: 'live' }),
+    tx('2026-09-06', 9990, 'subscriptions', { recurringId: 'cancelled-long-ago' }), // its item no longer exists
+    tx('2026-09-07', 3000, 'food'), tx('2026-09-15', 3000, 'food'),
+  ];
+  const m = spendingModel({ txs, recurring: rec, today: '2026-09-30', since: '2026-09-01' });
+  assert.equal(m.variable, 6000);
+  assert.equal(m.fixedPersonal, 5000);
+  assert.equal(m.personalMonthly, 5000 + 6000); // 30 days tracked → ×1
+  assert.equal(m.byCategory.get('subscriptions'), 5000);
+  assert.equal(m.byCategory.get('food'), 6000);
+  assert.equal(m.steady, true);
+  assert.equal(spendingModel({ txs, recurring: rec, today: '2026-09-09', since: '2026-09-01' }).steady, false);
+});
+
+test('a running month is judged on a 30-day basis, whatever its length', () => {
+  const rec = [{ id: 'rent', type: 'expense', amount: 80000, categoryId: 'housing', day: 1, active: true }];
+  const month = (ym, today) => {
+    const txs = [tx(`${ym}-01`, 80000, 'housing', { recurringId: 'rent' })];
+    for (let d = 1; d <= Number(today.slice(8)); d += 1) txs.push(tx(`${ym}-${String(d).padStart(2, '0')}`, 1000, 'food')); // RM 10 a day
+    return evaluateMonth({ txs, ym, categories: DEFAULT_CATEGORIES, profile: {}, today, recurring: rec, startDate: `${ym}-01` });
+  };
+  const expected = 80000 + 1000 * 30;
+  assert.equal(month('2026-10', '2026-10-20').perMonth, expected); // 31 days
+  assert.equal(month('2026-09', '2026-09-20').perMonth, expected); // 30 days
+  assert.equal(month('2027-02', '2027-02-20').perMonth, expected); // 28 days
+});
+
+test('one purchase is not a pace: a category is judged on a month of fixed items + the recent average', () => {
+  const rec = [{ id: 'rent', type: 'expense', amount: 80000, categoryId: 'housing', day: 1, active: true }];
+  const txs = [tx('2026-09-01', 80000, 'housing', { recurringId: 'rent' }), tx('2026-10-01', 80000, 'housing', { recurringId: 'rent' })];
+  for (let d = 1; d <= 40; d += 1) txs.push(tx(addDaysISO('2026-09-01', d - 1), 3000, 'food'));
+  txs.push(tx('2026-10-03', 23500, 'shopping')); // one RM 235 purchase in 40 tracked days
+  const ev = evaluateMonth({ txs, ym: '2026-10', categories: DEFAULT_CATEGORIES, profile: {}, today: '2026-10-10', recurring: rec, startDate: '2026-09-01' });
+  const shopping = ev.rows.find((r) => r.categoryId === 'shopping');
+  assert.equal(shopping.monthly, Math.round((23500 / 40) * 30)); // RM 176 a month
+  assert.equal(shopping.status, 'ok');
+  assert.notEqual(shopping.status, 'pace');
+});
+
+test('category flags on a running period leave a little room for estimate noise', () => {
+  assert.equal(categoryStatus(26000, [50, 250], 1.1), 'ok');   // RM 260 against 250: within 10%
+  assert.equal(categoryStatus(26000, [50, 250]), 'high');      // finished periods stay strict
+  assert.equal(categoryStatus(30000, [50, 250], 1.1), 'high'); // RM 300 is clearly over
+});
+
+test('rounded money is rounded, not cut off', () => {
+  assert.equal(formatMoney(542997, { round: true }), 'RM 5,430');
+  assert.equal(formatMoney(407379, { round: true }), 'RM 4,074');
+  assert.equal(formatMoney(-30, { round: true }), 'RM 0');
+  assert.equal(formatMoney(-50, { round: true }), '−RM 1');
+  assert.equal(formatMoney(99950, { round: true, sign: true }), '+RM 1,000');
+});
+
+test('saving the savings figure remembers the day it was filled in', async () => {
+  const store = await import('../src/data/store.js');
+  await store.init({ demo: '2' }); // in memory only
+  const before = store.state.settings.currentSavingsAt;
+  await store.saveSettings({ expectedIncome: 123400 });
+  assert.equal(store.state.settings.currentSavingsAt, before, 'other settings leave the date alone');
+  await store.saveSettings({ currentSavings: 999900 });
+  assert.equal(store.state.settings.currentSavingsAt, todayISO());
+  assert.equal(sanitizeSettings({ currentSavingsAt: 'yesterday' }).currentSavingsAt, '');
+});
+
+test('recurring: switching a paused item back on resumes from now, it does not catch up the paused months', () => {
+  let k = 0;
+  const mk = () => `p${++k}`;
+  const paused = { id: 'gym', type: 'expense', amount: 15000, categoryId: 'health', day: 15, active: false, startMonth: '2026-03', lastMonth: '2026-05' };
+  // Naively re-enabling would log June … September (4 charges)
+  assert.equal(generateDue([{ ...paused, active: true }], '2026-10-07', mk).created.length, 4);
+  const resumed = resumeRecurring(paused, '2026-10-07');
+  assert.equal(resumed.active, true);
+  assert.equal(generateDue([resumed], '2026-10-07', mk).created.length, 0);            // 15 Oct is still ahead
+  assert.deepEqual(generateDue([resumed], '2026-10-15', mk).created.map((c) => c.date), ['2026-10-15']);
+  // Due day already passed this month: that charge fell during the pause, so the next one is November's
+  const early = resumeRecurring({ ...paused, day: 5 }, '2026-10-07');
+  assert.equal(generateDue([early], '2026-10-07', mk).created.length, 0);
+  assert.deepEqual(generateDue([early], '2026-11-05', mk).created.map((c) => c.date), ['2026-11-05']);
+  // Paused and resumed within a month that was already charged: nothing changes
+  assert.equal(resumeRecurring({ ...paused, lastMonth: '2026-10' }, '2026-10-07').lastMonth, '2026-10');
 });
