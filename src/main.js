@@ -1,6 +1,7 @@
 // App shell: routing, tab bar, scroll-edge nav bar, global gestures and lifecycle.
 import * as store from './data/store.js';
 import * as lock from './data/lock.js';
+import { getKV, setKV, deleteKV } from './data/db.js';
 import { html, icon, mount } from './ui/html.js';
 import { haptic } from './ui/haptics.js';
 import { toast, closeAllSheets, confirmDialog } from './ui/overlays.js';
@@ -12,7 +13,7 @@ import { dayLabel, todayISO } from './core/dates.js';
 import today from './ui/screens/today.js';
 import history from './ui/screens/history.js';
 import insights from './ui/screens/insights.js';
-import settings from './ui/screens/settings.js';
+import settings, { APP_VERSION } from './ui/screens/settings.js';
 import invest from './ui/screens/invest.js';
 import * as gdrive from './data/gdrive.js';
 import { handleOAuthReturn, runAutoBackup } from './ui/sheets/cloud.js';
@@ -72,16 +73,27 @@ export function render({ keepScroll = true } = {}) {
   const screen = SCREENS[app.current];
   const c = ctx();
   const y = window.scrollY;
-  mount($screen(), screen.render(c));
-  document.getElementById('nav-title').textContent = screen.title;
-  mount(document.getElementById('nav-trailing'), screen.navActions?.(c) || '');
-  mount(document.getElementById('nav-leading'), screen.navLeading?.(c) || '');
+  // A page that fails to draw must not take the rest of the app down with it: the data is untouched.
+  try {
+    mount($screen(), screen.render(c));
+    document.getElementById('nav-title').textContent = screen.title;
+    mount(document.getElementById('nav-trailing'), screen.navActions?.(c) || '');
+    mount(document.getElementById('nav-leading'), screen.navLeading?.(c) || '');
+    screen.afterRender?.($screen(), c);
+  } catch (err) {
+    document.getElementById('nav-title').textContent = screen.title;
+    mount($screen(), html`<div class="empty-state empty-state--error">
+      ${icon('warning')}<h2>这一页没能显示</h2>
+      <p>你的资料没有受影响。可以先看看别的页面，或重新载入。</p>
+      <p class="empty-state__detail">${String(err?.message || err)}</p>
+      <button type="button" class="btn btn--primary" data-reload>重新载入</button>
+    </div>`);
+  }
   document.querySelectorAll('.tabbar__item').forEach((a) => {
     const on = a.dataset.tab === app.current;
     a.classList.toggle('is-active', on);
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
-  screen.afterRender?.($screen(), c);
   if (keepScroll) window.scrollTo(0, y);
   updateNavbar();
 }
@@ -131,6 +143,7 @@ function updateNavbar() {
 async function onClick(e) {
   if (app.locked) return;
   if (e.target.closest('#overlay-root')) return; // sheets and alerts handle their own taps
+  if (e.target.closest('[data-reload]')) { location.reload(); return; }
   const tab = e.target.closest('[data-tab]');
   if (tab) {
     haptic();
@@ -258,6 +271,15 @@ async function maybeLock() {
   app.locked = false;
 }
 
+// A write that did not reach the phone's storage (full, or the database was closed): say so instead of failing quietly.
+const DB_ERRORS = new Set(['QuotaExceededError', 'InvalidStateError', 'UnknownError', 'TransactionInactiveError', 'DataError', 'ConstraintError', 'ReadOnlyError', 'VersionError']);
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason;
+  if (!DB_ERRORS.has(r?.name) && r?.message !== 'Transaction aborted') return;
+  e.preventDefault();
+  toast(r?.name === 'QuotaExceededError' ? '手机存储空间不足，没能保存' : '没能保存，请再试一次', { icon: 'warning', tone: 'error', duration: 6000 });
+});
+
 document.addEventListener('visibilitychange', async () => {
   const root = document.documentElement;
   if (document.visibilityState === 'hidden') {
@@ -277,27 +299,85 @@ document.addEventListener('visibilitychange', async () => {
   const added = await store.runRecurring(t);
   if (t !== app.lastDay || added) { app.lastDay = t; render(); }
   runAutoBackup().catch(() => {});
+  checkForUpdate();
+  showUpdateToast();
 });
+
+// A phone left open overnight: roll over to the new day (fixed items due, today's allowance) without a tap.
+setInterval(async () => {
+  if (document.visibilityState !== 'visible' || app.locked || !store.state.ready) return;
+  const t = todayISO();
+  if (t === app.lastDay) return;
+  app.lastDay = t;
+  await store.runRecurring(t);
+  render();
+}, 60_000);
+
+// ── Updates ─────────────────────────────────────────────────────────────────
+// The app opens from the offline cache, so a new version is downloaded in the background and only runs on the
+// next load. The worker that takes over reports its version; if the page is still running older code, offer a
+// one-tap reload. Asking (instead of listening for the worker's arrival) works even when the new worker took
+// over while the lock screen was still up.
+
+let swReg = null;
+let updateWaiting = false;
+let lastUpdateCheck = 0;
+const UPDATE_CHECK_EVERY = 10 * 60_000;
+const RELOAD_MARK = 'reloadUnlocked';
+const RELOAD_GRACE_MS = 20_000;
+
+function askWorkerVersion() {
+  navigator.serviceWorker?.controller?.postMessage('version');
+}
 
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
   // During local development always load fresh files (add ?sw=1 to test offline mode locally).
   const local = ['localhost', '127.0.0.1'].includes(location.hostname);
   if (local && !params.has('sw')) return;
-  navigator.serviceWorker.register('sw.js').then((reg) => {
-    reg.addEventListener('updatefound', () => {
-      const w = reg.installing;
-      w?.addEventListener('statechange', () => {
-        if (w.state === 'installed' && navigator.serviceWorker.controller) {
-          toast('有新版本可用', { icon: 'sparkles', duration: 10000, action: { label: '更新', onClick: () => location.reload() } });
-        }
-      });
-    });
-  }).catch(() => { /* offline support unavailable */ });
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    const v = e.data?.version;
+    if (typeof v === 'string' && v !== `v${APP_VERSION}`) { updateWaiting = true; showUpdateToast(); }
+  });
+  navigator.serviceWorker.addEventListener('controllerchange', askWorkerVersion);
+  navigator.serviceWorker.register('sw.js').then((reg) => { swReg = reg; askWorkerVersion(); }).catch(() => { /* offline support unavailable */ });
+}
+
+/** Look for a newer version when the app comes back to the foreground (iPhone only checks on a cold start). */
+function checkForUpdate() {
+  if (!swReg || Date.now() - lastUpdateCheck < UPDATE_CHECK_EVERY) return;
+  lastUpdateCheck = Date.now();
+  swReg.update().catch(() => {});
+}
+
+function showUpdateToast() {
+  if (!updateWaiting || app.locked || !store.state.ready || document.documentElement.classList.contains('is-locked')) return;
+  updateWaiting = false;
+  toast('有新版本可用', { icon: 'sparkles', duration: 12000, action: { label: '更新', onClick: applyUpdate } });
+}
+
+async function applyUpdate() {
+  // The reload starts the app fresh, which would ask for the passcode again; tell it this is the same unlocked visit.
+  if (!demo && !app.locked) await setKV(RELOAD_MARK, Date.now()).catch(() => {});
+  location.reload();
+}
+
+/** True when this load was started by applyUpdate a moment ago (and consumes the mark). */
+async function takeReloadMark() {
+  if (demo) return false;
+  try {
+    const at = await getKV(RELOAD_MARK);
+    if (at === undefined) return false;
+    await deleteKV(RELOAD_MARK);
+    return Number.isFinite(at) && Date.now() - at >= 0 && Date.now() - at < RELOAD_GRACE_MS;
+  } catch {
+    return false;
+  }
 }
 
 async function start() {
   renderShell();
+  registerServiceWorker();
   document.addEventListener('click', onClick);
   window.addEventListener('hashchange', navigate);
   window.addEventListener('scroll', updateNavbar, { passive: true });
@@ -320,7 +400,8 @@ async function start() {
   // user's last touch in the unlocked app), no second unlock.
   const away = oauth?.presentAt ? Date.now() - oauth.presentAt : Infinity;
   const autoLockMs = await lock.getAutoLockMs().catch(() => 0);
-  if (!(autoLockMs > 0 && away >= 0 && away <= autoLockMs)) await maybeLock();
+  const resumed = await takeReloadMark();
+  if (!resumed && !(autoLockMs > 0 && away >= 0 && away <= autoLockMs)) await maybeLock();
   store.subscribe(() => render());
   render({ keepScroll: false });
   document.documentElement.classList.add('is-ready');
@@ -331,8 +412,7 @@ async function start() {
 
   if (oauth) await handleOAuthReturn(oauth);
   else runAutoBackup().catch(() => {});
-
-  registerServiceWorker();
+  showUpdateToast();
 }
 
 start();
