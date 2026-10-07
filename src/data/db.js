@@ -83,6 +83,22 @@ export async function putMany(store, items) {
   return done(tx);
 }
 
+/**
+ * Put records into several stores in ONE transaction: all of them are saved or none is. `batches` maps a store
+ * name to its items, e.g. { transactions: [...], recurring: [...] }.
+ */
+export async function putBatch(batches) {
+  const names = Object.keys(batches).filter((name) => batches[name].length);
+  if (!names.length) return;
+  const db = await open();
+  const tx = db.transaction(names, 'readwrite');
+  for (const name of names) {
+    const s = tx.objectStore(name);
+    for (const item of batches[name]) s.put(item);
+  }
+  return done(tx);
+}
+
 export async function deleteMany(store, ids) {
   if (!ids.length) return;
   const db = await open();

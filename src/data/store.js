@@ -31,6 +31,7 @@ function emit(reason) {
 // Persistence layer — swapped for no-ops in demo mode so nothing touches the real database.
 let persist = {
   putTx: (items) => db.putMany('transactions', items),
+  putBatch: (batches) => db.putBatch(batches),
   delTx: (ids) => db.deleteMany('transactions', ids),
   putCat: (items) => db.putMany('categories', items),
   delCat: (ids) => db.deleteMany('categories', ids),
@@ -90,10 +91,13 @@ export async function init({ demo = false } = {}) {
 export async function runRecurring(today = todayISO()) {
   const { created, updated } = generateDue(state.recurring, today, newId);
   if (!created.length && !updated.length) return 0;
+  // Memory first (a second call a moment later must not generate the same charges again), then ONE atomic write:
+  // the charges and the "this month is done" marks land together, or neither does — never a charge without its mark
+  // (it would be logged twice next time).
   state.transactions.push(...created);
   const byId = new Map(updated.map((r) => [r.id, r]));
   state.recurring = state.recurring.map((r) => byId.get(r.id) || r);
-  await Promise.all([persist.putTx(created), persist.putRec(updated)]);
+  await persist.putBatch({ transactions: created, recurring: updated });
   if (state.ready) emit('recurring');
   return created.length;
 }
@@ -113,21 +117,22 @@ export async function addTransaction(input) {
     createdAt: now,
     updatedAt: now,
   };
-  state.transactions.push(t);
+  // Saved first: if the write fails nothing is shown as recorded, and the caller finds out.
   await persist.putTx([t]);
+  state.transactions.push(t);
   emit('tx');
   return t;
 }
 
 export async function updateTransaction(id, patch) {
-  const i = state.transactions.findIndex((t) => t.id === id);
-  if (i < 0) return null;
-  const prev = state.transactions[i];
+  const prev = state.transactions.find((t) => t.id === id);
+  if (!prev) return null;
   const next = { ...prev, ...patch, updatedAt: Date.now() };
   next.note = (next.note || '').trim().slice(0, 200);
   next.business = next.type === 'expense' && (!!next.business || next.categoryId === 'business');
-  state.transactions[i] = next;
   await persist.putTx([next]);
+  const i = state.transactions.findIndex((t) => t.id === id);
+  if (i >= 0) state.transactions[i] = next; else state.transactions.push(next);
   emit('tx');
   return next;
 }
@@ -135,8 +140,8 @@ export async function updateTransaction(id, patch) {
 export async function deleteTransaction(id) {
   const t = state.transactions.find((x) => x.id === id);
   if (!t) return null;
-  state.transactions = state.transactions.filter((x) => x.id !== id);
   await persist.delTx([id]);
+  state.transactions = state.transactions.filter((x) => x.id !== id);
   emit('tx');
   return t;
 }
@@ -144,15 +149,18 @@ export async function deleteTransaction(id) {
 /** Put back a transaction exactly as it was (undo). */
 export async function restoreTransaction(t) {
   if (state.transactions.some((x) => x.id === t.id)) return;
-  state.transactions.push(t);
   await persist.putTx([t]);
+  if (!state.transactions.some((x) => x.id === t.id)) state.transactions.push(t);
   emit('tx');
 }
 
 // ── Settings ────────────────────────────────────────────────────────────────
 
 export async function saveSettings(patch) {
-  state.settings = sanitizeSettings({ ...state.settings, ...patch });
+  const next = { ...state.settings, ...patch };
+  // Remember when the savings figure was filled in, so the runway can say how fresh it is.
+  if ('currentSavings' in patch && patch.currentSavings !== state.settings.currentSavings) next.currentSavingsAt = todayISO();
+  state.settings = sanitizeSettings(next);
   await persist.settings(state.settings);
   emit('settings');
 }
