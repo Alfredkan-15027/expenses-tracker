@@ -2,7 +2,7 @@
 // Strategy: stale-while-revalidate — open instantly from cache, refresh files in the background,
 // so design updates (styles / icons) reach the phone on the next launch even without a version bump.
 
-const VERSION = 'v1.3.1';
+const VERSION = 'v1.3.2';
 const CACHE = `expenses-tracker-${VERSION}`;
 
 const PRECACHE = [
@@ -75,6 +75,11 @@ self.addEventListener('activate', (event) => {
       .then((keys) => Promise.all(keys.filter((k) => k.startsWith('expenses-tracker-') && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
+});
+
+// The page asks which version is in control, so it can offer a reload when it is still running older code.
+self.addEventListener('message', (event) => {
+  if (event.data === 'version') event.source?.postMessage({ version: VERSION });
 });
 
 self.addEventListener('fetch', (event) => {

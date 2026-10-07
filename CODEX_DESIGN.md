@@ -127,7 +127,7 @@ npm run dev
 | 进度条 | `.progress`（`--spend`、`--warn`、`--bad`、`--save`、`--group-need｜want｜growth｜business｜other`，`.is-over`）、`.progress__fill`、`.progress__marker` |
 | 占比条 | `.stackbar`、`.stackbar__seg[data-color]`、`.legend`、`.legend__item`、`.legend__swatch`、`.legend__value` |
 | 生活费对照尺 | `.gauge`、`.gauge__track`、`.gauge__zone[data-tone=lean｜ok｜high｜over]`、`.gauge__marker`、`.gauge__pin`、`.gauge__ticks`、`.gauge__tick`、`.gauge__legend` |
-| 6 个月趋势 | `.trend`、`.trend__readout`、`.trend__caption`、`.trend__value`、`.trend__sub`、`.trend__plot`、`.trend__grid`、`.trend__gridline`（`--base`）、`.trend__budget`、`.trend__cols`、`.trend__col.is-selected`、`.trend__bar.is-over`、`.trend__axis` |
+| 6 个月趋势 | `.trend`、`.trend__readout`、`.trend__caption`、`.trend__value`、`.trend__sub`、`.trend__plot`、`.trend__grid`、`.trend__gridline`（`--base`）、`.trend__budget`、`.trend__cols`、`.trend__col.is-selected`、`.trend__bar.is-over`、`.trend__bar.is-partial`（只记录了一部分的周期，虚线框）、`.trend__axis` |
 | 与上月比较 | `.diverge`、`.diverge__row`、`.diverge__label`、`.diverge__track`、`.diverge__axis`、`.diverge__bar.is-up｜is-down`、`.diverge__value` |
 | 说明页 | `.prose`、`.steps`、`.steps__item`、`.steps__num`、`.steps__text`、`.steps__icon`、`.tips`、`.sources`、`.stack` |
 | 密码 | `.pin`、`.pin__icon`、`.pin__title`、`.pin__subtitle`、`.pin__dots`（`.is-shaking`）、`.pin__dot.is-filled`、`.lock-screen`（`.is-leaving`）、`.lock-screen__forgot` |
