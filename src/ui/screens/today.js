@@ -135,18 +135,23 @@ function hero(b) {
   }
   const cycle = b.period.kind === 'cycle';
   const THIS = cycle ? '本期' : '本月';
+  // Past the period's budget the per-day figure means nothing (it only gets more negative as days run out):
+  // show how far over the whole period is.
+  const overPeriod = b.status === 'overMonth';
   const over = b.leftToday < 0;
-  const label = over ? '今天已超出' : '今天还能花';
-  const tone = b.status === 'overMonth' ? 'bad' : over ? 'warn' : 'good';
+  const label = overPeriod ? `${THIS}已超支` : over ? '今天已超出' : '今天还能花';
+  const amount = overPeriod ? -b.leftMonth : Math.abs(b.leftToday);
+  const tone = overPeriod ? 'bad' : over ? 'warn' : 'good';
+  const personal = b.spentMonth - b.spentBusiness;
   return html`<section class="card card--hero" data-tone="${tone}">
     <span class="card__eyebrow">${label}</span>
-    <div class="hero-amount">${money(Math.abs(b.leftToday), { cls: 'money--hero' })}</div>
+    <div class="hero-amount">${money(amount, { cls: 'money--hero' })}</div>
     <p class="hero-sub">
-      每日额度 ${formatMoney(Math.max(0, b.allowanceToday))} · 今天已花 ${formatMoney(b.spentToday)}
+      每日额度 ${formatMoney(Math.max(0, b.allowanceToday))} · 今天已花 ${formatMoney(b.spentTodayFree)}
     </p>
     ${progress({ ratio: b.usedRatio, marker: b.monthProgress, tone: tone === 'good' ? 'spend' : tone, label: `${THIS}预算使用` })}
     <div class="hero-foot">
-      <span>${b.leftMonth >= 0 ? html`${THIS}还剩 <strong>${formatMoney(b.leftMonth, { round: true })}</strong>` : html`${THIS}已超支 <strong>${formatMoney(-b.leftMonth, { round: true })}</strong>`}</span>
+      <span>${overPeriod ? html`${THIS}预算 <strong>${formatMoney(b.budget, { round: true })}</strong>` : html`${THIS}还剩 <strong>${formatMoney(b.leftMonth, { round: true })}</strong>`}</span>
       <span>还有 ${b.daysLeft} 天</span>
     </div>
     ${cycle ? html`<p class="hero-note">${icon('calendar')} ${b.period.overdue
@@ -154,7 +159,9 @@ function hero(b) {
       : `本期 ${b.period.label}${b.period.estimated ? '（还没记录本期收入，先按窗口估计）' : ''} · 下次收入按${dayLabel(b.period.nextPay || b.period.end)}估计`}</p>` : ''}
     ${b.prorated ? html`<p class="hero-note">${icon('info')} 从${dayLabel(b.startDate)}开始记录，${THIS}预算已按剩余天数折算为 ${formatMoney(b.budget, { round: true })}</p>` : ''}
     ${b.reserved > 0 ? html`<p class="hero-note">${icon('clock')} 已预留${THIS}未到期的固定支出 ${formatMoney(b.reserved, { round: true })}</p>` : ''}
-    ${b.status === 'overMonth' ? html`<p class="hero-note hero-note--bad">${icon('warning')} ${THIS}预算已用完，接下来每一笔都会动用存款目标。</p>` : ''}
+    ${b.fixedToday > 0 ? html`<p class="hero-note">${icon('clock')} 今天自动记的固定支出 ${formatMoney(b.fixedToday, { round: true })} 已提前预留，不占今天的额度</p>` : ''}
+    ${b.spentBusiness > 0 ? html`<p class="hero-note">${icon('business')} ${THIS}已花 ${formatMoney(b.spentMonth, { round: true })}：个人 ${formatMoney(personal, { round: true })} + 创业 ${formatMoney(b.spentBusiness, { round: true })}（都算进预算）</p>` : ''}
+    ${overPeriod ? html`<p class="hero-note hero-note--bad">${icon('warning')} ${THIS}预算已用完，接下来每一笔都会动用存款目标。</p>` : ''}
   </section>`;
 }
 

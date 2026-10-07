@@ -3,13 +3,13 @@ import { html, icon, catIcon } from '../html.js';
 import { periodSwitcher, statusBadge } from './shared.js';
 import { stackBar, tierGauge, trendChart, divergeList, progress } from '../charts.js';
 import {
-  periodSummary, evaluatePeriod, comparePeriods, trendPeriods, runway, buildInsights, dailyBudget, trackingStart,
+  periodSummary, evaluatePeriod, comparePeriods, trendPeriods, runway, buildInsights, periodBudget, trackingStart,
 } from '../../core/analysis.js';
 import { periodFor, periodByKey, prevPeriod, nextPeriod, periodsEndingWith } from '../../core/periods.js';
 import { categoryMap, unknownCategory, GROUP_LABELS } from '../../core/categories.js';
 import { HOUSING_OPTIONS, TRANSPORT_OPTIONS, BENCHMARK_SOURCES } from '../../core/benchmarks.js';
 import { formatMoney, formatPercent } from '../../core/money.js';
-import { monthLabel } from '../../core/dates.js';
+import { dayLabel, monthLabel } from '../../core/dates.js';
 import { haptic } from '../haptics.js';
 import { openSheet } from '../overlays.js';
 import { openChoiceSheet } from '../sheets/plan.js';
@@ -23,12 +23,14 @@ const screen = {
 
   render({ state, today }) {
     const { transactions: txs, categories, settings } = state;
-    const ctx = { txs, settings };
+    const ctx = { txs, settings, today };
     const currentP = periodFor(today, ctx);
-    // Switching between calendar months and pay cycles resets the view to the current period.
-    if (!ui.key || ui.mode !== currentP.kind || ui.key > today) { ui.key = currentP.key; ui.mode = currentP.kind; }
-    const p = periodByKey(ui.key, ctx);
-    const isCurrentP = p.start <= today && today <= p.end;
+    // ui.key = null follows the running period (it moves on by itself when new income starts the next cycle).
+    // Switching between calendar months and pay cycles resets the view to the running period.
+    if (ui.mode !== currentP.kind || (ui.key && ui.key > today)) { ui.key = null; ui.mode = currentP.kind; }
+    if (ui.key === currentP.key) ui.key = null;
+    const p = ui.key ? periodByKey(ui.key, ctx) : currentP;
+    const isCurrentP = p.key === currentP.key;
     const cycle = p.kind === 'cycle';
     const THIS = cycle ? '本期' : '本月';
     const cats = categoryMap(categories);
@@ -42,7 +44,7 @@ const screen = {
     const shown = periodsEndingWith(p, 6, ctx).filter((q) => !since || q.end >= since || q.key === p.key);
     const rows = trendPeriods(txs, shown, since);
     const tIdx = ui.trendIndex ?? rows.length - 1;
-    const plan = dailyBudget({ txs, settings, recurring: state.recurring, today: isCurrentP ? today : p.start });
+    const plan = periodBudget({ txs, settings, period: p });
     const rw = runway({ txs, currentSavings: settings.currentSavings, today, since, recurring: state.recurring });
     const nextP = nextPeriod(p, ctx);
     const cat = (id) => cats.get(id) || unknownCategory();
@@ -111,7 +113,7 @@ const screen = {
                 ${catIcon(cat(r.categoryId))}
                 <span class="row__body">
                   <span class="row__title">${cat(r.categoryId).name}</span>
-                  <span class="row__subtitle">${r.range ? `参考 ${r.range[0]}–${r.range[1]}` : '无参考值'} · ${formatPercent(ev.personalTotal ? r.amount / ev.personalTotal : 0)}</span>
+                  <span class="row__subtitle">${r.range ? `参考 ${r.range[0]}–${r.range[1]}` : '无参考值'}${r.monthly !== null && r.monthly !== undefined ? ` · 每月约 ${formatMoney(r.monthly, { round: true })}` : ''} · ${formatPercent(ev.personalTotal ? r.amount / ev.personalTotal : 0)}</span>
                 </span>
                 <span class="row__trail">
                   <span class="row__value">${formatMoney(r.amount, { round: true })}</span>
@@ -208,7 +210,7 @@ function runwayCard(rw, settings) {
         </div>
         <p class="runway__text">${months === null
           ? `目前存款 ${formatMoney(settings.currentSavings, { round: true })}。记录满 7 天后，就能算出每月开销和 Runway。`
-          : html`目前存款 ${formatMoney(settings.currentSavings, { round: true })} ÷ 每月开销 <strong>${formatMoney(rw.avg, { round: true })}</strong>
+          : html`目前存款 ${formatMoney(settings.currentSavings, { round: true })}${settings.currentSavingsAt ? `（${dayLabel(settings.currentSavingsAt)}填写）` : ''} ÷ 每月开销 <strong>${formatMoney(rw.avg, { round: true })}</strong>
             （固定项目 ${formatMoney(rw.fixed, { round: true })} + 日常开销 ${formatMoney(rw.variable, { round: true })}，按近 ${rw.days} 天的平均速度）。
             ${months >= rw.target ? '已达到 6 个月的安全线。' : `建议至少储备 ${rw.target} 个月生活费作为创业安全垫。`}`}</p>
         <p class="card__footnote">${icon('info')} 「目前存款」是你在设置里填的数字，不会自动加减，收入进来或存款变动后记得更新。${rw.oneOffBusiness > 0 ? `一次性的创业支出（近 ${rw.days} 天共 ${formatMoney(rw.oneOffBusiness, { round: true })}）不算进每月开销；如果是每月都要付的（例如分期还款），把它设成固定项目就会算进去。` : ''}</p>` : ''}
