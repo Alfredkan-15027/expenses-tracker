@@ -65,7 +65,7 @@ function cashTile(cash, rw, today) {
     <span class="bento__icon" data-color="pink">${icon('wallet')}</span>
     <span class="bento__body">
       <span class="bento__label">手上的钱</span>
-      <span class="bento__sub">${dayLabel(cash.at, today)}对账 · 按记录推算</span>
+      <span class="bento__sub">${cash.kept ? `能用 ${formatMoney(cash.spendable, { round: true })}（存款不动用）· ` : ''}${dayLabel(cash.at, today)}对账 · 按记录推算</span>
     </span>
     <span class="bento__aside">
       <span class="bento__value ${cash.balance < 0 ? 'is-negative' : ''}" data-motion="digits" data-motion-key="overview-cash">${money(cash.balance, { cls: 'money--bento' })}</span>
