@@ -136,7 +136,9 @@ npm run dev
 
 | 页面 | class |
 |---|---|
-| 今天 | `.card--hero[data-tone=good｜warn｜bad]`、`.hero-amount`、`.hero-sub`、`.hero-foot`、`.hero-note`（`--bad`）、`.card--rings` |
+| 今天 | `.card--hero[data-tone=good｜warn｜bad]`、`.hero-amount`、`.hero-sub`、`.hero-foot`、`.hero-note`（`--bad`）、`.card--rings`；手上的钱卡片 `.cash-card[data-tone=warn]`、`.cash-card__icon`、`.cash-card__body`、`.cash-card__label`、`.cash-card__sub`、`.cash-card__value`、`.cash-card__cta`、`.cash-card__chevron` |
+| 分析 · 便当格 | `.bento`、`.bento__tile`（`--hero[data-tone=good｜bad]`、`--wide`）、`.bento__label`、`.bento__value`（`--hero`、`.is-negative`）、`.bento__sub`、`.bento__flow`、`.bento__meter`（`.is-over`；`> span` 进度、`> i` 80% 刻度）、`.bento__icon[data-color]`、`.bento__body`、`.bento__aside`、`.bento__chevron`。设计稿：Figma「Expenses Tracker 1.4 · Bento & 对账」 |
+| 对账 | `.cash-form`、`.cash-recorded`、`.cash-recorded__value`、`.cash-breakdown`（`.is-income`）、`.cash-diff[data-tone=good｜warn｜info｜bad]`、`.cash-choice`、`.cash-choice__row`、`.cash-choice__sub` |
 | 记录 | `.toolbar`、`.month-switch`、`.month-switch__label`、`.summary-row`、`.summary-row__item`、`.section--day`、`.section__title--day` |
 | 分析 | `.stat-grid`、`.stat`、`.stat__label`、`.stat__value`（`.is-income`、`.is-negative`）、`.stat__note`、`.card--benchmark[data-tier]`、`.benchmark__head`、`.benchmark__profile`、`.benchmark__amount`、`.benchmark__note`、`.insights`、`.insight[data-tone]`、`.insight__icon`、`.insight__text`、`.card--groups`、`.groups`、`.groups__row[data-group]`、`.card--runway[data-tone]`、`.runway__main`、`.runway__value`、`.runway__unit`、`.runway__text`、`.goal`、`.goal__head` |
 | 记一笔 | `.entry[data-kind=expense｜income]`、`.entry__type`（标题栏的支出/收入切换）、`.entry__hint`、`.entry__meta`、`.entry__delete`、`.entry__save`；收入类型按钮 `.type-picker`（`.is-set`）、`.type-picker__label`、`.type-picker__value`、`.type-picker__chevron` |
@@ -147,6 +149,16 @@ npm run dev
 | 恢复密钥（Google Drive 加密） | `.recovery`、`.recovery__form`、`.recovery__intro`、`.recovery__icon`、`.recovery-key`（7 组 × 4 字，等宽字体，必须清楚易抄）、`.recovery__input`、`.recovery__error` |
 | 设定表单 | `.plan-preview[data-tone]`、`.cat-editor`、`.cat-editor__preview`、`.rec-editor`、`.cat-manager`、`.rec-manager`、`.swatches`、`.swatch.is-selected`、`.icon-grid`、`.icon-grid__item.is-selected` |
 | 引导页 | `.onboarding`、`.onboarding__content`、`.onboarding__hero`、`.onboarding__appicon`、`.onboarding__title`、`.onboarding__lead`、`.onboarding__head`、`.onboarding__footer`、`.onboarding__dots`、`.features`、`.features__icon[data-color]`、`.choice-cards`、`.choice-card.is-selected` |
+
+### 动画（`components.css` 末尾的 Motion 区块，由 `src/ui/motion.js` 加上）
+
+画面每次都整页重画，所以「从旧值变到新值」的动画由 `motion.js` 负责，CSS 只定义样子。下面这些 class / 变量名不能改：
+
+- `.m-digit`、`.is-popping`（金额变了，数字逐个弹出；`--i` 是第几个字，`--elapsed` 是重画前已经播了多久）、`.m-digit--typed`（键盘刚输入的那一位）
+- `.screen.is-fresh`（刚打开的页面：卡片依次浮起、圆环画出来、进度条和趋势柱长出来，约 1.4 秒后移除）；趋势柱用 `--i` 错开，圆环用 `--c`（周长）
+- `.swipe.is-new`（刚加的一行）、`.swipe.is-removing`（正在删除的一行，高度收起）
+- 动画用的 token：`--ease-pop`、`--dur-pop`、`--dur-enter`、`--stagger`
+- 「减少动态效果」打开时全部不播（`base.css` 的 reduced-motion 规则 + `motion.js` 自己也会检查）
 
 ### data 属性
 
