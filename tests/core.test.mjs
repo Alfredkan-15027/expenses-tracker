@@ -552,3 +552,30 @@ test('runway from a checked balance: 0 or less means 0 months, not "unknown"', (
   assert.equal(runway({ txs, currentSavings: -5000, today: '2026-09-10', known: true }).months, 0);
   assert.ok(runway({ txs, currentSavings: 90000, today: '2026-09-10', known: true }).months > 0);
 });
+
+test('savings kept aside (对账 → 其中存款) are not spending money: the allowance uses only the rest', () => {
+  const base = { expectedIncome: 400000, savingsTarget: 100000 }; // budget RM 3,000 for September
+  const rec = [{ id: 'wifi', type: 'expense', amount: 14940, categoryId: 'utilities', day: 25, active: true, startMonth: '2026-09', lastMonth: null }];
+  const txs = [tx('2026-09-02', 30000)];
+  const today = '2026-09-23'; // 8 days left
+  const settings = sanitizeSettings({ ...base, currentSavings: 140111, keptSavings: 123900, currentSavingsAt: '2026-09-20', currentSavingsTs: 1 });
+  const cash = cashOnHand({ txs, settings, today });
+  assert.equal(cash.balance, 140111);
+  assert.equal(cash.kept, 123900);
+  assert.equal(cash.spendable, 16211);
+  const b = dailyBudget({ txs, settings, recurring: rec, today, cash });
+  assert.equal(b.limit, 'cash');
+  assert.equal(b.cashLeft, 16211 - 14940);
+  assert.equal(b.allowanceToday, Math.floor((16211 - 14940) / 8));
+  // Without savings set aside, all of it may be spent: a much larger allowance
+  const all = sanitizeSettings({ ...base, currentSavings: 140111, currentSavingsAt: '2026-09-20', currentSavingsTs: 1 });
+  const allB = dailyBudget({ txs, settings: all, recurring: rec, today, cash: cashOnHand({ txs, settings: all, today }) });
+  assert.equal(allB.allowanceToday, Math.floor((140111 - 14940) / 8));
+  // Savings larger than the money on hand: nothing left to spend, and it says so
+  const short = sanitizeSettings({ ...base, currentSavings: 100000, keptSavings: 123900, currentSavingsAt: '2026-09-20', currentSavingsTs: 1 });
+  const s2 = dailyBudget({ txs, settings: short, recurring: rec, today, cash: cashOnHand({ txs, settings: short, today }) });
+  assert.equal(s2.status, 'overMonth');
+  // Runway still counts all of it
+  assert.equal(runway({ txs: Array.from({ length: 10 }, (_, i) => tx(addDaysISO('2026-09-01', i), 3000)), currentSavings: cash.balance, today: '2026-09-10', known: true }).months > 0, true);
+  assert.equal(sanitizeSettings({ keptSavings: -1 }).keptSavings, 0);
+});
