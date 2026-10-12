@@ -69,7 +69,9 @@
   display: flex; gap: 8px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius-md);
   font: var(--text-subhead); background: var(--fill-4); animation: m-rise 320ms var(--ease-out);
 }
-.cash-diff[hidden], .cash-choice[hidden] { display: none; }
+.cash-diff[hidden], .cash-choice[hidden], .cash-split[hidden] { display: none; }
+.cash-split { font: var(--text-subhead); font-weight: 600; color: var(--label); padding: 0 4px; margin-top: -8px; }
+.cash-split[data-tone="bad"] { color: var(--bad-ink); font-weight: 400; }
 .cash-diff .icon { font-size: 18px; flex: none; margin-top: 1px; }
 .cash-diff[data-tone="good"] { background: var(--good-bg); color: var(--good-ink); }
 .cash-diff[data-tone="warn"] { background: var(--warn-bg); color: var(--warn-ink); }
