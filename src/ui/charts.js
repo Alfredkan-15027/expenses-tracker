@@ -1,7 +1,7 @@
 // Small, dependency-free charts. Colors come from CSS (classes / data-color), never inline hex,
 // so the styles layer fully controls the look.
 import { html } from './html.js';
-import { formatCompact, formatMoney } from '../core/money.js';
+import { formatCompact, formatMoney, sharePercents } from '../core/money.js';
 import { monthLabel } from '../core/dates.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -32,17 +32,18 @@ export function activityRings(rings, { size = 104, stroke = 13, gap = 3 } = {}) 
       return html`<g class="ring ring--${ring.tone}">
         <circle class="ring__track" cx="${mid}" cy="${mid}" r="${r}" stroke-width="${stroke}"></circle>
         <circle class="ring__value ${v === 0 ? 'is-zero' : ''}" cx="${mid}" cy="${mid}" r="${r}" stroke-width="${stroke}"
-          stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - v)).toFixed(2)}" transform="rotate(-90 ${mid} ${mid})"></circle>
+          stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - v)).toFixed(2)}" transform="rotate(-90 ${mid} ${mid})"
+          style="--c:${c.toFixed(2)}px" data-motion="ring" data-motion-key="${ring.key || `${ring.tone}-${i}`}"></circle>
       </g>`;
     })}
   </svg>`;
 }
 
 /** Linear progress with an optional "time elapsed" tick. */
-export function progress({ ratio, marker = null, tone = 'spend', label = '' }) {
+export function progress({ ratio, marker = null, tone = 'spend', label = '', key = '' }) {
   return html`<div class="progress progress--${tone} ${ratio > 1 ? 'is-over' : ''}" role="progressbar" aria-label="${label}"
       aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(clamp(ratio, 0, 1) * 100)}">
-    <span class="progress__fill" style="width:${pct(ratio)}"></span>
+    <span class="progress__fill" style="width:${pct(ratio)}" ${key ? html`data-motion="width" data-motion-key="${key}"` : ''}></span>
     ${marker !== null ? html`<span class="progress__marker" style="left:${pct(marker)}"></span>` : ''}
   </div>`;
 }
@@ -58,12 +59,13 @@ export function stackBar(segments, { max = 5 } = {}) {
   const head = sorted.slice(0, max);
   const tail = sorted.slice(max).reduce((a, s) => a + s.value, 0);
   if (tail > 0) head.push({ id: '_rest', value: tail, color: 'gray', label: '其余' });
+  const shares = sharePercents(head.map((s) => s.value)); // add up to 100%
   return html`
     <div class="stackbar" role="img" aria-label="类别占比">
       ${head.map((s) => html`<span class="stackbar__seg" data-color="${s.color}" style="flex-grow:${(s.value / total).toFixed(4)}"></span>`)}
     </div>
     <ul class="legend">
-      ${head.map((s) => html`<li class="legend__item"><span class="legend__swatch" data-color="${s.color}"></span>${s.label}<span class="legend__value">${Math.round((s.value / total) * 100)}%</span></li>`)}
+      ${head.map((s, i) => html`<li class="legend__item"><span class="legend__swatch" data-color="${s.color}"></span>${s.label}<span class="legend__value">${shares[i]}%</span></li>`)}
     </ul>`;
 }
 
@@ -92,12 +94,15 @@ export function tierGauge({ value, tiers, label }) {
 }
 
 /**
- * Apple Health–style monthly bars. rows: [{ ym, expense, income }].
+ * Apple Health–style monthly bars. rows: [{ ym, expense, income, budget? }].
+ * Each bar is marked over against its own `budget` (default: `budget`, which is also where the 预算 line is drawn —
+ * pass it only when it is every bar's budget).
  * Tapping a column updates the readout (handled by the screen via data-trend-i).
  */
 export function trendChart(rows, { selected = rows.length - 1, budget = 0, personalOnly = false } = {}) {
   // personalOnly: the bars measure personal spending (business spending is outside the budget they are held against).
   const value = (r) => (personalOnly ? r.personal : r.expense);
+  const limit = (r) => r.budget ?? budget;
   const what = personalOnly ? '个人支出' : '支出';
   // Headroom above the budget line so its label never sits on the top value.
   const maxVal = Math.max(1, ...rows.map(value), budget * 1.15);
@@ -122,7 +127,7 @@ export function trendChart(rows, { selected = rows.length - 1, budget = 0, perso
       <div class="trend__cols">
         ${rows.map((r, i) => html`<button type="button" class="trend__col ${i === selected ? 'is-selected' : ''}" data-trend-i="${i}"
             aria-label="${r.label || monthLabel(r.ym)} ${what} ${formatMoney(value(r), { round: true })}${r.partial ? '（只记录了一部分）' : ''}">
-          <span class="trend__bar ${value(r) > budget && budget > 0 ? 'is-over' : ''} ${r.partial ? 'is-partial' : ''}" style="height:${pct(value(r) / top)}"></span>
+          <span class="trend__bar ${value(r) > limit(r) && limit(r) > 0 ? 'is-over' : ''} ${r.partial ? 'is-partial' : ''}" style="height:${pct(value(r) / top)};--i:${i}"></span>
         </button>`)}
       </div>
     </div>
@@ -197,7 +202,7 @@ export function divergeList(rows) {
           <span class="diverge__axis"></span>
           <span class="diverge__bar ${up ? 'is-up' : 'is-down'}" style="width:${w}"></span>
         </span>
-        <span class="diverge__value ${up ? 'is-up' : 'is-down'}">${up ? '+' : r.delta < 0 ? '−' : ''}${formatCompact(Math.abs(r.delta))}</span>
+        <span class="diverge__value ${up ? 'is-up' : 'is-down'}">${formatCompact(r.delta, { sign: true })}</span>
       </li>`;
     })}
   </ul>`;
