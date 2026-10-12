@@ -158,8 +158,12 @@ export async function restoreTransaction(t) {
 
 export async function saveSettings(patch) {
   const next = { ...state.settings, ...patch };
-  // Remember when the savings figure was filled in, so the runway can say how fresh it is.
-  if ('currentSavings' in patch && patch.currentSavings !== state.settings.currentSavings) next.currentSavingsAt = todayISO();
+  // Filling in the money on hand (even the same figure again) is a check against the bank: remember when, so
+  // the records logged after it carry it forward (cashOnHand) and the runway can say how fresh it is.
+  if ('currentSavings' in patch) {
+    next.currentSavingsAt = todayISO();
+    next.currentSavingsTs = Date.now();
+  }
   state.settings = sanitizeSettings(next);
   await persist.settings(state.settings);
   emit('settings');
@@ -232,6 +236,10 @@ export async function deleteRecurring(id) {
 
 export async function replaceAllData(data) {
   const full = { holdings: [], investFlows: [], valuations: [], ...data };
+  // A backup from before a built-in category shipped: add it, as a launch would.
+  const have = new Set(full.categories.map((c) => c.id));
+  const missing = DEFAULT_CATEGORIES.filter((c) => !have.has(c.id)).map((c) => ({ ...c }));
+  if (missing.length) full.categories = [...full.categories, ...missing];
   await persist.replaceAll(full);
   state.transactions = full.transactions;
   state.categories = full.categories;
@@ -240,6 +248,9 @@ export async function replaceAllData(data) {
   state.investFlows = full.investFlows;
   state.valuations = full.valuations;
   state.settings = sanitizeSettings(full.settings);
+  // Fixed items that came due since the backup was made: log them now, as a launch would. Otherwise they are
+  // neither spent nor reserved until the app next comes to the foreground (and 补记 would count them twice).
+  await runRecurring();
   emit('restore');
 }
 

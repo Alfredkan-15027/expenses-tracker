@@ -1,7 +1,7 @@
 // Realistic sample data for demo mode (?demo=1). Never written to the real database.
 import { DEFAULT_CATEGORIES } from '../core/categories.js';
 import { DEFAULT_SETTINGS } from '../core/settings.js';
-import { addMonths, dateInMonth, daysInMonth, monthOf, dayOf } from '../core/dates.js';
+import { addDays, addMonths, dateInMonth, daysInMonth, monthOf, dayOf } from '../core/dates.js';
 
 // Small deterministic PRNG so the demo looks the same every time.
 function rng(seed) {
@@ -111,6 +111,7 @@ export function buildDemoData(today, variant = '1') {
       expectedIncome: 400000,
       savingsTarget: 80000,
       currentSavings: 1250000,
+      currentSavingsAt: addDays(today, -3), // checked against the bank 3 days ago; the records since carry it on
       goalName: '应急金',
       goalAmount: 1800000,
       profile: { housing: 'room', transport: 'public' },
