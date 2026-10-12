@@ -7,7 +7,7 @@ import { monthPeriod } from '../src/core/periods.js';
 import { DEFAULT_CATEGORIES } from '../src/core/categories.js';
 import {
   monthSummary, dailyBudget, compareMonths, evaluateMonth, trend, runway, quickPicks, buildInsights, upcomingRecurring, spendingModel,
-  trackingStart, periodBudget, categoryStatus,
+  trackingStart, periodBudget, categoryStatus, cashOnHand, reconcileGap,
 } from '../src/core/analysis.js';
 import { generateDue, newRecurring, nextDueDate, findManualMatch, resumeRecurring } from '../src/core/recurring.js';
 import { buildBackup, parseBackup, toCSV } from '../src/core/backup.js';
@@ -398,8 +398,11 @@ test('saving the savings figure remembers the day it was filled in', async () =>
   const before = store.state.settings.currentSavingsAt;
   await store.saveSettings({ expectedIncome: 123400 });
   assert.equal(store.state.settings.currentSavingsAt, before, 'other settings leave the date alone');
+  const t0 = Date.now();
   await store.saveSettings({ currentSavings: 999900 });
   assert.equal(store.state.settings.currentSavingsAt, todayISO());
+  assert.ok(store.state.settings.currentSavingsTs >= t0, 'and the moment, so entries logged later that day count after it');
+  assert.equal(sanitizeSettings({ currentSavingsTs: -5 }).currentSavingsTs, 0);
   assert.equal(sanitizeSettings({ currentSavingsAt: 'yesterday' }).currentSavingsAt, '');
 });
 
@@ -460,4 +463,92 @@ test('business spending counts against the allowance only when the switch is on'
   assert.equal(sanitizeSettings({}).budgetIncludesBusiness, false);
   assert.equal(sanitizeSettings({ budgetIncludesBusiness: true }).budgetIncludesBusiness, true);
   assert.equal(sanitizeSettings({ budgetIncludesBusiness: 'yes' }).budgetIncludesBusiness, false);
+});
+
+test('money on hand: the last figure filled in, carried forward by what was recorded after it', () => {
+  const ts = Date.parse('2026-10-12T13:00:00Z');
+  const settings = sanitizeSettings({ currentSavings: 123900, currentSavingsAt: '2026-10-12', currentSavingsTs: ts });
+  const txs = [
+    tx('2026-10-11', 5000),                                         // before that day: already in the figure
+    tx('2026-10-12', 1800, 'food', { createdAt: ts - 60_000 }),     // that day, logged before it was filled in
+    tx('2026-10-12', 1090, 'groceries', { createdAt: ts + 60_000 }), // that day, logged after → counts
+    tx('2026-10-13', 2500, 'transport', { createdAt: ts + 9e7 }),
+    { ...income('2026-10-14', 64800, 'freelance'), createdAt: ts + 2e8 },
+    tx('2026-10-15', 3000, 'food', { createdAt: ts + 3e8, recurringId: 'r1' }),
+    tx('2026-10-20', 9999, 'food', { createdAt: ts + 4e8 }),        // dated after today: not yet
+  ];
+  const flows = [{ id: 'f1', holdingId: 'h', type: 'in', amount: 20000, date: '2026-10-14', createdAt: ts + 2e8 },
+    { id: 'f2', holdingId: 'h', type: 'out', amount: 5000, date: '2026-10-15', createdAt: ts + 3e8 }];
+  const c = cashOnHand({ txs, settings, flows, today: '2026-10-15' });
+  assert.equal(c.base, 123900);
+  assert.equal(c.income, 64800);
+  assert.equal(c.spent, 1090 + 2500 + 3000);
+  assert.equal(c.invested, 15000);
+  assert.equal(c.balance, 123900 + 64800 - 6590 - 15000);
+  assert.equal(c.todayOut, 0, "today's only entry was made by a fixed item");
+  assert.equal(c.count, 6);
+  assert.equal(c.days, 3);
+  // Filled in before this version (no moment saved): that whole day is taken as included
+  const legacy = cashOnHand({ txs, settings: sanitizeSettings({ currentSavings: 123900, currentSavingsAt: '2026-10-12' }), flows: [], today: '2026-10-13' });
+  assert.equal(legacy.balance, 123900 - 2500);
+  assert.equal(legacy.todayOut, 2500);
+  assert.equal(cashOnHand({ txs, settings: sanitizeSettings({}), today: '2026-10-13' }), null, 'never filled in');
+});
+
+test('对账: the gap becomes an entry dated the day before; within RM 1 there is nothing to close', () => {
+  assert.deepEqual(reconcileGap(103900, 118881, '2026-10-12'),
+    { type: 'expense', amount: 14981, categoryId: 'other', date: '2026-10-11', note: '对账差额：没记到的支出' });
+  assert.deepEqual(reconcileGap(130000, 120000, '2026-11-01'),
+    { type: 'income', amount: 10000, categoryId: 'otherincome', date: '2026-10-31', note: '对账差额：没记到的收入' });
+  assert.equal(reconcileGap(100050, 100000, '2026-10-12'), null);
+  assert.equal(reconcileGap(99901, 100000, '2026-10-12'), null);
+});
+
+test('the allowance never exceeds the money on hand (after every fixed item still due, business too)', () => {
+  const base = { expectedIncome: 400000, savingsTarget: 100000 }; // budget RM 3,000 for September
+  const rec = [
+    { id: 'rent', type: 'expense', amount: 60000, categoryId: 'housing', day: 28, active: true, startMonth: '2026-09', lastMonth: null },
+    { id: 'tool', type: 'expense', amount: 5000, categoryId: 'subscriptions', day: 25, business: true, active: true, startMonth: '2026-09', lastMonth: null },
+  ];
+  const txs = [tx('2026-09-02', 30000), tx('2026-09-23', 1500, 'food', { createdAt: 9e12 })];
+  const today = '2026-09-23'; // 8 days left
+  const withCash = (amount) => {
+    const settings = sanitizeSettings({ ...base, currentSavings: amount, currentSavingsAt: '2026-09-20', currentSavingsTs: 1 });
+    const cash = cashOnHand({ txs, settings, today });
+    return dailyBudget({ txs, settings, recurring: rec, today, cash });
+  };
+  const plain = dailyBudget({ txs, settings: sanitizeSettings(base), recurring: rec, today });
+  assert.equal(plain.limit, 'budget');
+  assert.equal(plain.allowanceToday, Math.floor((300000 - 30000 - 60000) / 8));
+
+  // Plenty of money: the budget is what limits, nothing changes
+  const rich = withCash(10_000_000);
+  assert.equal(rich.limit, 'budget');
+  for (const k of ['allowanceToday', 'leftToday', 'leftMonth', 'status']) assert.equal(rich[k], plain[k], k);
+
+  // RM 1,000 on hand − RM 15 today = RM 985; RM 650 of fixed items still due (the business tool too) → RM 335 left
+  const tight = withCash(100000);
+  assert.equal(tight.limit, 'cash');
+  assert.equal(tight.cash.balance, 98500);
+  assert.equal(tight.reservedAll, 65000);
+  assert.equal(tight.cashLeft, 33500);
+  assert.equal(tight.allowanceToday, Math.floor((33500 + 1500) / 8));
+  assert.equal(tight.shownToday, 1500);
+  assert.equal(tight.leftToday, tight.allowanceToday - 1500);
+  assert.equal(tight.leftMonth, 33500);
+  assert.equal(tight.status, 'ok');
+
+  // Not even the fixed items are covered
+  const short = withCash(50000);
+  assert.equal(short.limit, 'cash');
+  assert.equal(short.leftMonth, 48500 - 65000);
+  assert.equal(short.leftToday, -1500);
+  assert.equal(short.status, 'overMonth');
+});
+
+test('runway from a checked balance: 0 or less means 0 months, not "unknown"', () => {
+  const txs = Array.from({ length: 10 }, (_, i) => tx(addDaysISO('2026-09-01', i), 3000));
+  assert.equal(runway({ txs, currentSavings: 0, today: '2026-09-10' }), null);
+  assert.equal(runway({ txs, currentSavings: -5000, today: '2026-09-10', known: true }).months, 0);
+  assert.ok(runway({ txs, currentSavings: 90000, today: '2026-09-10', known: true }).months > 0);
 });

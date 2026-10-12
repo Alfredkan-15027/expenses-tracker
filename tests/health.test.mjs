@@ -77,20 +77,22 @@ test('a hand-typed entry that looks like the same service at a new price offers 
     tx('2026-09-29', 59990, 'subscriptions', { note: 'Claude Max 订阅', business: true }), // upgraded
     tx('2026-09-01', 1200), tx('2026-09-02', 800), tx('2026-09-03', 900),
   ];
-  const found = checkData({ ...base, transactions: txs, recurring: [pro, apple], settings: okSettings }).filter((i) => i.kind === 'fixed-changed');
+  // Checked on the 30th, so the upgrade typed on the 29th is in the past (a future-dated one is not taken as a price change)
+  const on30 = { ...base, today: '2026-09-30' };
+  const found = checkData({ ...on30, transactions: txs, recurring: [pro, apple], settings: okSettings }).filter((i) => i.kind === 'fixed-changed');
   assert.equal(found.length, 1);
   assert.deepEqual(found[0].fix, { type: 'update-fixed', recurringId: 'rPro', amount: 59990, note: 'Claude Max 订阅', date: '2026-09-29' });
   // Applying it makes the finding go away, keeps September from being logged twice and moves the day
   const updated = repriceRecurring(pro, found[0].fix);
   assert.deepEqual([updated.amount, updated.note, updated.day, updated.lastMonth], [59990, 'Claude Max 订阅', 29, '2026-09']);
-  assert.equal(checkData({ ...base, transactions: txs, recurring: [updated, apple], settings: okSettings }).filter((i) => i.kind === 'fixed-changed').length, 0);
+  assert.equal(checkData({ ...on30, transactions: txs, recurring: [updated, apple], settings: okSettings }).filter((i) => i.kind === 'fixed-changed').length, 0);
   // Not the same service, same price, an older entry, or an entry that is another fixed item's price: nothing to say
   const other = [...txs.slice(0, 1), tx('2026-09-29', 5990, 'subscriptions', { note: 'Spotify 订阅', business: true }), ...txs.slice(2)];
-  assert.equal(checkData({ ...base, transactions: other, recurring: [pro, apple], settings: okSettings }).filter((i) => i.kind === 'fixed-changed').length, 0);
+  assert.equal(checkData({ ...on30, transactions: other, recurring: [pro, apple], settings: okSettings }).filter((i) => i.kind === 'fixed-changed').length, 0);
   const same = [...txs.slice(0, 1), tx('2026-09-29', 9990, 'subscriptions', { note: 'Claude Pro 订阅', business: true }), ...txs.slice(2)];
-  assert.equal(checkData({ ...base, transactions: same, recurring: [pro, apple], settings: okSettings }).filter((i) => i.kind === 'fixed-changed').length, 0);
+  assert.equal(checkData({ ...on30, transactions: same, recurring: [pro, apple], settings: okSettings }).filter((i) => i.kind === 'fixed-changed').length, 0);
   const older = [tx('2026-09-10', 59990, 'subscriptions', { note: 'Claude Max 订阅', business: true }), ...txs.slice(0, 1), ...txs.slice(2)];
-  assert.equal(checkData({ ...base, transactions: older, recurring: [pro, apple], settings: okSettings }).filter((i) => i.kind === 'fixed-changed').length, 0);
+  assert.equal(checkData({ ...on30, transactions: older, recurring: [pro, apple], settings: okSettings }).filter((i) => i.kind === 'fixed-changed').length, 0);
   const lookalike = { ...apple, id: 'rMax', amount: 59990, note: 'Anthropic 订阅', day: 3 };
-  assert.equal(checkData({ ...base, transactions: txs, recurring: [pro, lookalike], settings: okSettings }).filter((i) => i.kind === 'fixed-changed').length, 0);
+  assert.equal(checkData({ ...on30, transactions: txs, recurring: [pro, lookalike], settings: okSettings }).filter((i) => i.kind === 'fixed-changed').length, 0);
 });
