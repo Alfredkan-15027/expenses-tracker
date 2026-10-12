@@ -363,10 +363,13 @@ button.row:active, .row__main:active { background: var(--fill-4); }
   content: ""; position: absolute; top: 2px; left: 2px;
   width: 38px; height: 24px; border-radius: var(--radius-pill);
   background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
-  transition: transform var(--dur) var(--ease-spring);
+  transition: transform var(--dur) var(--ease-spring), width var(--dur-fast) var(--ease-out);
 }
 .switch:checked { background: var(--good); }
 .switch:checked::before { transform: translateX(20px); }
+/* the knob stretches while pressed, like iOS */
+.switch:active::before { width: 44px; }
+.switch:checked:active::before { transform: translateX(14px); }
 .switch:disabled { opacity: 0.4; }
 
 /* Search */
@@ -523,9 +526,10 @@ button.row:active, .row__main:active { background: var(--fill-4); }
   border-radius: var(--radius-pill);
   background: var(--glass-bg-strong);
   font: var(--text-subhead); font-weight: 500;
-  transition: opacity 220ms ease, transform 320ms var(--ease-spring);
+  transition: opacity 220ms ease, transform 460ms var(--ease-pop);
 }
 .toast.is-visible { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.toast.is-visible .toast__icon { animation: m-icon-pop var(--dur-pop) var(--ease-pop) 70ms both; }
 .toast__icon { font-size: 19px; display: flex; color: var(--label-2); }
 .toast[data-tone="success"] .toast__icon { color: var(--good); }
 .toast[data-tone="error"] .toast__icon { color: var(--bad); }
@@ -681,7 +685,7 @@ html.has-overlay .toast { bottom: calc(var(--safe-bottom) + 24px); }
 .pin__subtitle { font: var(--text-footnote); color: var(--label-2); min-height: 18px; text-align: center; }
 .pin__dots { display: flex; gap: 20px; margin: 10px 0 26px; }
 .pin__dot { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--label-2); transition: background 120ms ease; }
-.pin__dot.is-filled { background: var(--label); box-shadow: none; }
+.pin__dot.is-filled { background: var(--label); box-shadow: none; animation: m-dot-pop 300ms var(--ease-pop); }
 .pin__dots.is-shaking { animation: shake 360ms ease; }
 .keypad--pin { grid-template-columns: repeat(3, 78px); gap: 16px 26px; }
 .keypad--pin .keypad__key { height: 78px; border-radius: 50%; font-size: 34px; background: var(--fill-3); box-shadow: none; }
@@ -815,3 +819,60 @@ html.is-concealed #app, html.is-concealed #overlay-root { visibility: hidden; }
 .health-item__body { font: var(--text-subhead); color: var(--label-2); }
 .health-item__rows { margin: 0 -18px; }
 .health-item__rows .row { background: transparent; padding-left: 18px; padding-right: 14px; }
+
+/* ── Motion ─────────────────────────────────────────────────────────────────
+   Hooks set by src/ui/motion.js (keep these class names):
+   .m-digit / .is-popping   money whose value changed: digits pop in turn (adapted from transitions.dev, Number pop-in)
+   .m-digit--typed          the digit just typed on the keypad
+   .screen.is-fresh         a page that was just opened: rings draw, bars grow, cards rise (about 1.4 s)
+   .swipe.is-new            a row that was just added;  .swipe.is-removing  a row being deleted
+   The prefers-reduced-motion guard in base.css turns all of it off. */
+.m-digit { display: inline-block; }
+.is-popping .m-digit {
+  animation: m-digit-in var(--dur-pop) var(--ease-pop) both;
+  animation-delay: calc(var(--i, 0) * var(--stagger) - var(--elapsed, 0ms)); /* --elapsed: resumed after a redraw */
+}
+@keyframes m-digit-in {
+  from { opacity: 0; transform: translateY(0.34em); filter: blur(2px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+.m-digit--typed { animation: m-digit-typed 280ms var(--ease-pop) both; }
+@keyframes m-digit-typed {
+  from { opacity: 0; transform: translateY(0.28em) scale(0.86); }
+  to { opacity: 1; transform: none; }
+}
+
+.screen.is-fresh > * { animation: m-rise var(--dur-enter) var(--ease-out) both; }
+.screen.is-fresh > :nth-child(2) { animation-delay: calc(1 * var(--stagger)); }
+.screen.is-fresh > :nth-child(3) { animation-delay: calc(2 * var(--stagger)); }
+.screen.is-fresh > :nth-child(4) { animation-delay: calc(3 * var(--stagger)); }
+.screen.is-fresh > :nth-child(5) { animation-delay: calc(4 * var(--stagger)); }
+.screen.is-fresh > :nth-child(6) { animation-delay: calc(5 * var(--stagger)); }
+.screen.is-fresh > :nth-child(n+7) { animation-delay: calc(6 * var(--stagger)); }
+@keyframes m-rise { from { opacity: 0; transform: translateY(10px); } }
+
+.screen.is-fresh .ring__value { animation: m-ring-draw 900ms var(--ease-out) 120ms both; }
+.screen.is-fresh .ring + .ring .ring__value { animation-delay: 240ms; }
+@keyframes m-ring-draw { from { stroke-dashoffset: var(--c); } }
+
+.screen.is-fresh .progress__fill { transform-origin: left center; animation: m-fill-in 800ms var(--ease-out) 160ms both; }
+@keyframes m-fill-in { from { transform: scaleX(0); } }
+
+.screen.is-fresh .trend__bar {
+  transform-origin: center bottom;
+  animation: m-bar-grow var(--dur-enter) var(--ease-pop) both;
+  animation-delay: calc(var(--i, 0) * 55ms + 120ms);
+}
+@keyframes m-bar-grow { from { transform: scaleY(0); } }
+
+.swipe.is-new { animation: m-row-in var(--dur-pop) var(--ease-pop) both; animation-delay: calc(0ms - var(--elapsed, 0ms)); }
+.swipe.is-new .row { animation: m-row-glow 1400ms ease-out both; animation-delay: calc(0ms - var(--elapsed, 0ms)); }
+@keyframes m-row-in { from { opacity: 0; transform: translateY(-8px) scale(0.97); } }
+@keyframes m-row-glow { from { background: color-mix(in srgb, var(--accent) 14%, var(--bg-elevated)); } }
+.swipe.is-removing {
+  overflow: hidden; height: 0 !important; opacity: 0;
+  transition: height 260ms var(--ease-out), opacity 180ms ease;
+}
+
+@keyframes m-icon-pop { from { opacity: 0; transform: scale(0.3) rotate(-25deg); } }
+@keyframes m-dot-pop { 0% { transform: scale(0.6); } 60% { transform: scale(1.2); } 100% { transform: scale(1); } }

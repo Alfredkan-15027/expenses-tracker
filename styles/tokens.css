@@ -121,6 +121,10 @@
   --dur-fast: 160ms;
   --dur: 260ms;
   --dur-sheet: 420ms;
+  --ease-pop: cubic-bezier(0.34, 1.45, 0.64, 1);   /* a small overshoot: digits, toasts, dots, new rows */
+  --dur-pop: 520ms;
+  --dur-enter: 620ms;   /* rings, bars and cards when a page opens */
+  --stagger: 38ms;      /* delay between neighbours in a sequence */
 }
 
 @media (prefers-color-scheme: dark) {

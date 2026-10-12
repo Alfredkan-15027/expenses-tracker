@@ -39,6 +39,53 @@
 .rings__value { font-family: var(--font-rounded); font-size: 21px; line-height: 26px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rings__sub { font: var(--text-caption); color: var(--label-2); }
 
+/* 手上的钱 (tap → 对账) */
+.cash-card { display: flex; align-items: center; gap: 12px; padding: 14px 16px; text-align: left; transition: transform var(--dur-fast) var(--ease-out); }
+.cash-card:active { transform: scale(0.98); }
+.cash-card__icon {
+  width: 38px; height: 38px; border-radius: 11px; flex: none; display: grid; place-items: center; font-size: 20px;
+  background: color-mix(in srgb, var(--c-pink) 16%, transparent); color: color-mix(in srgb, var(--c-pink) 72%, var(--label));
+}
+.cash-card[data-tone="warn"] .cash-card__icon { background: var(--warn-bg); color: var(--warn-ink); }
+.cash-card__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.cash-card__label { font: var(--text-headline); }
+.cash-card__sub { font: var(--text-footnote); color: var(--label-2); }
+.cash-card[data-tone="warn"] .cash-card__sub { color: var(--warn-ink); }
+.cash-card__value { font-family: var(--font-rounded); font-size: 20px; line-height: 26px; font-weight: 700; flex: none; }
+.cash-card__value .money__dec { font-size: 0.72em; }
+.cash-card__cta { font: var(--text-headline); color: var(--accent-ink); flex: none; }
+.cash-card__chevron { color: var(--label-3); font-size: 15px; flex: none; }
+
+/* 对账 sheet */
+.cash-recorded { display: flex; flex-direction: column; gap: 6px; }
+.cash-recorded__value .money { font-family: var(--font-rounded); font-size: 34px; line-height: 1.1; font-weight: 700; }
+.cash-recorded__value .money__cur { font-size: 18px; }
+.cash-recorded__value .money__dec { font-size: 22px; }
+.cash-breakdown { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--separator); font: var(--text-subhead); color: var(--label-2); }
+.cash-breakdown li { display: flex; justify-content: space-between; gap: 12px; }
+.cash-breakdown li > span:last-child { color: var(--label); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cash-breakdown li > span.is-income { color: var(--income); }
+.cash-diff {
+  display: flex; gap: 8px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius-md);
+  font: var(--text-subhead); background: var(--fill-4); animation: m-rise 320ms var(--ease-out);
+}
+.cash-diff[hidden], .cash-choice[hidden] { display: none; }
+.cash-diff .icon { font-size: 18px; flex: none; margin-top: 1px; }
+.cash-diff[data-tone="good"] { background: var(--good-bg); color: var(--good-ink); }
+.cash-diff[data-tone="warn"] { background: var(--warn-bg); color: var(--warn-ink); }
+.cash-diff[data-tone="bad"] { background: var(--bad-bg); color: var(--bad-ink); }
+.cash-diff[data-tone="info"] { background: var(--info-bg); color: var(--info-ink); }
+.cash-choice {
+  border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg-elevated); border-radius: var(--radius-card); box-shadow: inset 0 0 0 1px var(--separator);
+  animation: m-rise 320ms var(--ease-out);
+}
+.cash-choice__row { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; min-height: 44px; cursor: pointer; }
+.cash-choice__row + .cash-choice__row { box-shadow: inset 0 0.5px 0 var(--separator); }
+.cash-choice__row input { accent-color: var(--accent); width: 20px; height: 20px; margin: 1px 0 0; flex: none; }
+.cash-choice__row strong { display: block; font: var(--text-body); font-weight: 600; }
+.cash-choice__sub { display: block; font: var(--text-footnote); color: var(--label-2); margin-top: 2px; }
+
 /* ── 记录 ───────────────────────────────────────────────────────────────── */
 .toolbar { display: flex; flex-direction: column; gap: 10px; }
 .month-switch { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -60,6 +107,55 @@
 .stat__value.is-income { color: var(--income); }
 .stat__value.is-negative { color: var(--bad-ink); }
 .stat__note { font: var(--text-caption); color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Overview as a bento grid: one big tile (结余), small tiles beside it, a wide tile under it */
+.bento { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: minmax(88px, auto); gap: 10px; }
+.bento__tile {
+  grid-column: span 2; min-width: 0; position: relative; overflow: hidden;
+  display: flex; flex-direction: column; gap: 3px; padding: 15px 16px;
+  background: var(--bg-elevated); border-radius: var(--radius-lg);
+  box-shadow: inset 0 0 0 1px var(--separator), inset 0 1px 0 var(--surface-highlight);
+  text-align: left;
+}
+button.bento__tile { transition: transform var(--dur-fast) var(--ease-out); }
+button.bento__tile:active { transform: scale(0.97); }
+.bento__tile--hero {
+  grid-row: span 2; justify-content: space-between; gap: 10px; padding: 17px 17px 16px;
+  background: linear-gradient(150deg, color-mix(in srgb, var(--bento-tint, var(--accent)) 13%, var(--bg-elevated)), var(--bg-elevated) 74%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bento-tint, var(--accent)) 18%, var(--separator)), inset 0 1px 0 var(--surface-highlight);
+}
+.bento__tile--hero[data-tone="good"] { --bento-tint: var(--good); }
+.bento__tile--hero[data-tone="bad"] { --bento-tint: var(--bad); }
+.bento__tile--wide { grid-column: span 4; flex-direction: row; align-items: center; gap: 12px; }
+.bento__label { display: flex; align-items: center; gap: 5px; font: var(--text-footnote); font-weight: 600; color: var(--label-2); }
+.bento__label .icon { font-size: 14px; }
+.bento__value { font-family: var(--font-rounded); font-size: 22px; line-height: 28px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.bento__value--hero { font-size: 30px; line-height: 34px; letter-spacing: -0.3px; }
+.bento__value--hero .money__dec { font-size: 0.62em; }
+.bento__value.is-negative, .bento__value .is-negative { color: var(--bad-ink); }
+.bento__sub { font: var(--text-caption); color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bento__flow { display: flex; flex-direction: column; gap: 4px; font: var(--text-footnote); color: var(--label-2); }
+.bento__flow span { display: flex; justify-content: space-between; gap: 8px; }
+.bento__flow strong { color: var(--label); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bento__flow .is-income { color: var(--income); }
+.bento__meter { height: 6px; border-radius: 3px; background: var(--fill-3); overflow: hidden; position: relative; }
+.bento__meter > span { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--accent); }
+.bento__meter.is-over > span { background: var(--bad); }
+.bento__meter > i { position: absolute; top: -2px; bottom: -2px; width: 2px; border-radius: 1px; background: var(--label-3); }
+.bento__icon { width: 34px; height: 34px; border-radius: 10px; flex: none; display: grid; place-items: center; font-size: 18px; }
+.bento__icon[data-color] { background: color-mix(in srgb, var(--cat) 18%, transparent); color: color-mix(in srgb, var(--cat) 75%, var(--label)); }
+.bento__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.bento__body .bento__sub { white-space: normal; } /* the wide tile has room for two lines */
+.bento__aside { flex: none; text-align: right; display: flex; flex-direction: column; gap: 1px; }
+.bento__chevron { color: var(--label-3); font-size: 14px; flex: none; }
+.bento .money__cur { font-size: 0.55em; font-weight: 600; opacity: 0.6; }
+.bento .money__dec { font-size: 0.62em; opacity: 0.6; }
+.screen.is-fresh > .bento { animation: none; } /* its tiles rise one by one instead */
+.screen.is-fresh .bento__tile { animation: m-rise var(--dur-enter) var(--ease-out) both; }
+.screen.is-fresh .bento__tile:nth-child(2) { animation-delay: calc(1 * var(--stagger)); }
+.screen.is-fresh .bento__tile:nth-child(3) { animation-delay: calc(2 * var(--stagger)); }
+.screen.is-fresh .bento__tile:nth-child(4) { animation-delay: calc(3 * var(--stagger)); }
+.screen.is-fresh .bento__meter > span { transform-origin: left center; animation: m-fill-in 800ms var(--ease-out) 200ms both; }
 
 .card--benchmark { display: flex; flex-direction: column; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, var(--bg-elevated)), var(--bg-elevated) 72%); }
 .benchmark__head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
