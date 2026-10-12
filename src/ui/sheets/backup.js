@@ -4,14 +4,14 @@ import { openSheet, toast, confirmDialog, alertDialog } from '../overlays.js';
 import { haptic } from '../haptics.js';
 import { state, snapshot, saveSettings, replaceAllData } from '../../data/store.js';
 import { buildBackup, backupFilename, parseBackup, toCSV } from '../../core/backup.js';
+import { backupAgeDays, backupAgeText } from '../../core/settings.js';
 
 const MAX_IMPORT_BYTES = 30 * 1024 * 1024;
 
 function lastBackupText() {
   const t = state.settings.lastBackupAt;
   if (!t) return '还没有备份过';
-  const days = Math.floor((Date.now() - t) / 86_400_000);
-  return days === 0 ? '今天已备份' : `上次备份：${days} 天前`;
+  return backupAgeDays(t) === 0 ? '今天已备份' : `上次备份：${backupAgeText(t)}`;
 }
 
 /** Hand a file to the iOS share sheet (Save to Files / AirDrop), falling back to a download. */

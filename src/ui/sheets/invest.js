@@ -305,7 +305,7 @@ export function openHoldingDetail(id) {
         <div class="stat"><span class="stat__label">目前市值</span><span class="stat__value">${formatMoney(sum.value, { round: true })}</span></div>
         <div class="stat"><span class="stat__label">${sum.withdrawn ? '累计投入' : '投入本金'}</span><span class="stat__value">${formatMoney(sum.invested, { round: true })}</span>
           ${sum.withdrawn ? html`<span class="stat__note">已取出 ${formatMoney(sum.withdrawn, { round: true })}</span>` : ''}</div>
-        <div class="stat"><span class="stat__label">盈亏</span><span class="stat__value ${sum.gain < 0 ? 'is-negative' : 'is-income'}">${formatMoney(sum.gain, { round: true, sign: true })}</span></div>
+        <div class="stat"><span class="stat__label">盈亏</span><span class="stat__value ${Math.round(sum.gain / 100) < 0 ? 'is-negative' : Math.round(sum.gain / 100) > 0 ? 'is-income' : ''}">${formatMoney(sum.gain, { round: true, sign: true })}</span></div>
         <div class="stat"><span class="stat__label">回报</span><span class="stat__value">${sum.gainRatio === null ? '—' : formatPercent(sum.gainRatio, 1)}</span></div>
       </div>
       ${h.archived ? '' : html`<div class="action-row">
@@ -416,8 +416,8 @@ export function openPlanEditor() {
       <ul class="list">
         ${row('target', 'target', 'blue', '目标金额', formatMoney(p.target, { round: true }))}
         ${row('years', 'clock', 'indigo', '年限', `${p.years} 年`)}
-        ${row('low', 'trendDown', 'orange', '保守回报假设', `${(p.rateLow * 100).toFixed(1).replace(/\.0$/, '')}%`)}
-        ${row('high', 'trendUp', 'green', '乐观回报假设', `${(p.rateHigh * 100).toFixed(1).replace(/\.0$/, '')}%`)}
+        ${row('low', 'trendDown', 'orange', '保守回报假设', `${+(p.rateLow * 100).toFixed(2)}%`)}
+        ${row('high', 'trendUp', 'green', '乐观回报假设', `${+(p.rateHigh * 100).toFixed(2)}%`)}
       </ul>
       <ul class="list">
         ${row('freq', 'subscriptions', 'teal', '投入频率', FREQ_OPTIONS.find((f) => f.id === p.freq).label)}

@@ -74,8 +74,13 @@ export function openRecurringEditor(rec = null) {
     active: rec ? rec.active : true,
     includeThisMonth: null, // null = not chosen yet: on, unless this month's payment is already recorded
   };
-  const manualMatch = () => (editing ? null : findManualMatch(state.transactions, { type: s.type, categoryId: s.categoryId, amount: toCents(s.amount) }, today));
+  // Also finds this month's charge logged by a fixed item that was deleted (the same item added back).
+  const manualMatch = () => (editing ? null : findManualMatch(state.transactions, {
+    type: s.type, categoryId: s.categoryId, amount: toCents(s.amount), note: s.note,
+  }, today, state.recurring));
   const includeNow = () => (s.includeThisMonth ?? !manualMatch());
+  // The 本月也记一笔 switch is shown once this month's day has come, or when this month looks already recorded.
+  const switchShown = () => dateInMonth(monthOf(today), s.day) <= today || !!manualMatch();
   const sheet = openSheet({
     title: editing ? '编辑固定项目' : '新增固定项目',
     size: 'large',
@@ -91,8 +96,8 @@ export function openRecurringEditor(rec = null) {
         if (name === 'active') s.active = checked;
         if (name === 'include') s.includeThisMonth = checked;
       });
-      // Re-check for an existing entry this month once the amount is typed in.
-      el.addEventListener('change', (e) => { if (e.target.name === 'amount') render(); });
+      // Re-check for an existing entry this month once the amount (or the name) is typed in.
+      el.addEventListener('change', (e) => { if (e.target.name === 'amount' || e.target.name === 'note') render(); });
       el.addEventListener('click', async (e) => {
         const t = e.target.closest('[data-type]');
         if (t && t.dataset.type !== s.type) {
@@ -119,7 +124,7 @@ export function openRecurringEditor(rec = null) {
   function render() {
     const focused = document.activeElement?.name;
     const cats = activeCategories(state.categories, s.type);
-    const duePassed = dateInMonth(monthOf(today), s.day) <= today;
+    const due = dateInMonth(monthOf(today), s.day);
     const match = manualMatch();
     mount(root, html`
       <div class="segmented">
@@ -148,9 +153,9 @@ export function openRecurringEditor(rec = null) {
           <input type="checkbox" switch class="switch" name="business" ${s.business ? 'checked' : ''} aria-label="创业支出"></li>` : ''}
         ${editing ? html`<li class="row row--toggle"><span class="row__body"><span class="row__title">启用</span><span class="row__subtitle">关闭后暂停自动记录</span></span>
           <input type="checkbox" switch class="switch" name="active" ${s.active ? 'checked' : ''} aria-label="启用"></li>` : ''}
-        ${!editing && (duePassed || match) ? html`<li class="row row--toggle"><span class="row__body"><span class="row__title">本月也记一笔</span><span class="row__subtitle">${match
+        ${!editing && switchShown() ? html`<li class="row row--toggle"><span class="row__body"><span class="row__title">本月也记一笔</span><span class="row__subtitle">${match
             ? `本月已有一笔 ${formatMoney(match.amount)}（${dayLabel(match.date)}），默认不重复记录`
-            : `本月 ${s.day} 号已经过了；如果这个月已经付了，打开它`}</span></span>
+            : `本月 ${s.day} 号${due === today ? '就是今天' : '已经过了'}；如果这个月${s.type === 'income' ? '没有这笔收入' : '不用付'}（例如下个月才开始），关掉它`}</span></span>
           <input type="checkbox" switch class="switch" name="include" ${includeNow() ? 'checked' : ''} aria-label="本月也记一笔"></li>` : ''}
       </ul>
       ${editing ? html`<button type="button" class="btn btn--plain btn--danger btn--block" data-remove>删除固定项目</button>` : ''}
@@ -164,9 +169,18 @@ export function openRecurringEditor(rec = null) {
     if (!s.categoryId) { haptic('error'); toast('请选择类别', { icon: 'warning', tone: 'error' }); return; }
     const base = { type: s.type, amount: cents, categoryId: s.categoryId, note: s.note.trim().slice(0, 40), day: s.day, business: s.type === 'expense' && s.business };
     let r;
-    if (!editing) r = newRecurring({ id: newId(), ...base, includeThisMonth: includeNow() }, today);
-    else if (!rec.active && s.active) r = resumeRecurring({ ...rec, ...base }, today); // switched back on: resume, don't catch up
-    else r = { ...rec, ...base, active: s.active };
+    // The switch counts only while it is on screen: one turned off and then hidden (a later day picked) is not applied.
+    if (!editing) r = newRecurring({ id: newId(), ...base, includeThisMonth: switchShown() ? includeNow() : true }, today);
+    else {
+      // Saved over the item as it is now, not as the sheet opened with it: a charge logged meanwhile (the midnight
+      // roll-over) keeps its "this month is done" mark and is not logged again.
+      const live = state.recurring.find((x) => x.id === rec.id);
+      if (!live) { haptic('error'); toast('这个固定项目已经不在了', { icon: 'warning', tone: 'error' }); api.close(); return; }
+      const now = todayISO();
+      // A new day: the data check compares it with the charges from now on, not those made under the old day.
+      const next = { ...live, ...base, ...(base.day !== live.day ? { daySince: now } : {}) };
+      r = !live.active && s.active ? resumeRecurring(next, now) : { ...next, active: s.active }; // switched back on: resume, don't catch up
+    }
     await saveRecurring(r);
     haptic('success');
     toast(editing ? '已保存' : '已新增固定项目', { icon: 'check', tone: 'success' });

@@ -7,6 +7,7 @@ import { state, addTransaction, updateTransaction, deleteTransaction, restoreTra
 import { activeCategories, categoryMap } from '../../core/categories.js';
 import { centsToInput, formatMoney, toCents } from '../../core/money.js';
 import { dayLabel, todayISO } from '../../core/dates.js';
+import { popLast } from '../motion.js';
 
 const MAX_INT_DIGITS = 8;
 
@@ -111,10 +112,10 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
     return d !== undefined ? `${int}.${d}` : int;
   }
 
-  function updateAmount() {
+  function updateAmount(grew = false) {
     const box = root.querySelector('.amount-display');
     box.classList.toggle('is-empty', !s.amount);
-    box.querySelector('.amount-display__value').textContent = amountText();
+    popLast(box.querySelector('.amount-display__value'), amountText(), grew);
     root.querySelector('.entry__hint').textContent = hintText();
   }
 
@@ -129,9 +130,10 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
       else if ((i || '').length < MAX_INT_DIGITS) a += k;
     }
     if (a === s.amount) { haptic('error'); return; }
+    const grew = a.length > s.amount.length;
     s.amount = a;
     haptic();
-    updateAmount();
+    updateAmount(grew);
   }
 
   function onKey(e) {

@@ -3,7 +3,7 @@ import { html, icon, catIcon } from '../html.js';
 import { openSheet } from '../overlays.js';
 import { haptic } from '../haptics.js';
 import { state, saveSettings } from '../../data/store.js';
-import { centsToInput, formatMoney, toCents } from '../../core/money.js';
+import { centsToInput, formatMoney, normalizeNumberText, toCents } from '../../core/money.js';
 
 export function moneyField({ name, label, value, hint }) {
   return html`<label class="field field--money">
@@ -173,7 +173,7 @@ export function openNumberSheet({ title, label, value, suffix = '', hint = '', m
       onMount(el, api) {
         const form = el.querySelector('form');
         const save = () => {
-          const raw = form.v.value.trim().replace(/,/g, '');
+          const raw = normalizeNumberText(form.v.value);
           const n = Number(raw);
           if (!raw || !Number.isFinite(n) || n < min || n > max) {
             haptic('error');

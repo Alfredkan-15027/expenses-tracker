@@ -3,15 +3,16 @@ import { html, icon, catIcon, mount, money } from '../html.js';
 import { openSheet, toast } from '../overlays.js';
 import { haptic } from '../haptics.js';
 import {
-  state, subscribe, saveSettings, saveRecurring, addTransaction, deleteTransaction, restoreTransaction,
+  state, subscribe, saveSettings, saveRecurring, runRecurring, addTransaction, deleteTransaction, restoreTransaction,
 } from '../../data/store.js';
 import { checkData, checkedRange } from '../../core/health.js';
 import { repriceRecurring } from '../../core/recurring.js';
 import { categoryMap, unknownCategory } from '../../core/categories.js';
 import { formatMoney } from '../../core/money.js';
-import { addMonths, dayLabel, dayOf, todayISO } from '../../core/dates.js';
+import { addMonths, dayLabel, dayOf, monthOf, todayISO } from '../../core/dates.js';
 import { openEntrySheet } from './entry.js';
-import { openPlanSheet, openMoneySheet } from './plan.js';
+import { openPlanSheet } from './plan.js';
+import { openCashSheet } from './cash.js';
 
 /** Current findings (ignored ones left out). */
 export function healthIssues() {
@@ -21,7 +22,7 @@ export function healthIssues() {
   });
 }
 
-const FIX_LABEL = { delete: '删除多出来的', 'add-fixed': '补记这一笔', 'set-day': '改扣款日', unskip: '恢复本月自动记账', 'update-fixed': '更新固定项目', plan: '设定收入', savings: '填写存款' };
+const FIX_LABEL = { delete: '删除多出来的', 'add-fixed': '补记这一笔', 'set-day': '改扣款日', unskip: '恢复本月自动记账', 'update-fixed': '更新固定项目', plan: '设定收入', savings: '去对账' };
 
 export function openHealthCheck() {
   let unsub = null;
@@ -92,7 +93,7 @@ export function openHealthCheck() {
         </div>
       </section>`)}
       ${ignored ? html`<p class="section__footer">已忽略 ${ignored} 项。<button type="button" class="link" data-unignore>重新显示</button></p>` : ''}
-      <p class="section__footer">会检查：重复记录、固定项目漏记、被跳过或记了两次、扣款日不对、未来日期、类别不符、金额异常大、开始记账前的零星记录，以及收入与存款设定。</p>
+      <p class="section__footer">会检查：重复记录、固定项目漏记、被跳过或记了两次、扣款日不对、未来日期、类别不符、金额异常大、开始记账前的零星记录、收入设定，以及多久没对账。</p>
     `);
   }
 }
@@ -118,7 +119,10 @@ async function applyFix(fix) {
     case 'add-fixed': {
       const r = state.recurring.find((x) => x.id === fix.recurringId);
       if (!r) break;
-      await addTransaction({ type: r.type, amount: r.amount, categoryId: r.categoryId, date: fix.date, note: r.note, business: r.business });
+      // Not logged by the item yet (e.g. right after a restore): let it log the charge now. A copy added by hand
+      // would be logged a second time when the item catches up.
+      if (!r.lastMonth || r.lastMonth < monthOf(fix.date)) await runRecurring();
+      else await addTransaction({ type: r.type, amount: r.amount, categoryId: r.categoryId, date: fix.date, note: r.note, business: r.business });
       haptic('success');
       toast(`已补记 ${r.note || ''} ${formatMoney(r.amount)}`, { icon: 'check', tone: 'success' });
       break;
@@ -126,7 +130,10 @@ async function applyFix(fix) {
     case 'set-day': {
       const r = state.recurring.find((x) => x.id === fix.recurringId);
       if (!r) break;
-      await saveRecurring({ ...r, day: fix.day });
+      // The newest charge is on the new day, so it stands for its month: don't log that month again. From now on the
+      // day is checked against charges made under it.
+      const lastMonth = fix.month && (!r.lastMonth || r.lastMonth < fix.month) ? fix.month : r.lastMonth;
+      await saveRecurring({ ...r, day: fix.day, daySince: todayISO(), lastMonth });
       haptic('success');
       toast(`「${r.note || '固定项目'}」改成每月 ${fix.day} 号`, { icon: 'check', tone: 'success' });
       break;
@@ -144,17 +151,13 @@ async function applyFix(fix) {
     case 'update-fixed': {
       const r = state.recurring.find((x) => x.id === fix.recurringId);
       if (!r) break;
-      await saveRecurring(repriceRecurring(r, fix));
+      await saveRecurring(repriceRecurring(r, fix, todayISO()));
       haptic('success');
       toast(`「${fix.note || r.note}」改成每月 ${formatMoney(fix.amount)}`, { icon: 'check', tone: 'success' });
       break;
     }
     case 'plan': await openPlanSheet(); break;
-    case 'savings': {
-      const v = await openMoneySheet({ title: '目前存款', label: '现在总共有多少存款', value: state.settings.currentSavings, hint: '包括银行存款、定存等随时可以动用的钱（投资另计）。' });
-      if (v !== null) await saveSettings({ currentSavings: v });
-      break;
-    }
+    case 'savings': await openCashSheet(); break;
     default: break;
   }
 }
