@@ -225,6 +225,8 @@ export function spendingModel({ txs, recurring = [], today, since = '' }) {
  * after it was filled in (`currentSavingsTs`; without one, that day's entries are taken as included). Entries dated
  * after today don't count yet. Null when it was never filled in.
  * `todayOut`: today's spending in it that a fixed item didn't make (for today's cash allowance).
+ * `kept`: the savings in it that are not to be spent (settings.keptSavings); `spendable` = balance − kept, the money
+ * the allowance may use. Runway and the goal still count all of it.
  */
 export function cashOnHand({ txs, settings, flows = [], today }) {
   const at = settings?.currentSavingsAt || '';
@@ -249,9 +251,11 @@ export function cashOnHand({ txs, settings, flows = [], today }) {
     invested += f.type === 'out' ? -f.amount : f.amount;
   }
   const base = settings.currentSavings || 0;
+  const balance = base + income - spent - invested;
+  const kept = settings.keptSavings || 0;
   return {
     base, at, days: Math.max(0, daysBetween(at, today)), income, spent, invested, count, todayOut,
-    balance: base + income - spent - invested,
+    balance, kept, spendable: balance - kept,
   };
 }
 
@@ -388,7 +392,7 @@ export function dailyBudget({ txs, settings, recurring = [], today, cash = null 
   let reservedAll = reserved;
   if (cash && hasPlan) {
     reservedAll = upcomingRecurring(recurring, today, p.end);
-    cashLeft = cash.balance - reservedAll;
+    cashLeft = (cash.spendable ?? cash.balance) - reservedAll; // savings kept aside are not spending money
     const cashAllowance = Math.floor((cashLeft + cash.todayOut) / daysLeft);
     if (cashAllowance < allowanceToday) {
       limit = 'cash';

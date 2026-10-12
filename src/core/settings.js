@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS = {
   currentSavings: 0,   // cents — money on hand when last filled in (对账); carried forward by the records, see cashOnHand
   currentSavingsAt: '', // ISO date it was last filled in
   currentSavingsTs: 0,  // epoch ms it was last filled in — entries logged later that same day count after it
+  keptSavings: 0,       // cents — the part of it that is savings and not to be spent (今天还能花 uses the rest)
   goalName: '应急金',
   goalAmount: 0,       // cents — long-term savings goal
   profile: { ...DEFAULT_PROFILE },
@@ -79,6 +80,7 @@ export function sanitizeSettings(raw = {}) {
     currentSavings: cents(s.currentSavings),
     currentSavingsAt: isValidISODate(s.currentSavingsAt) ? s.currentSavingsAt : '',
     currentSavingsTs: Number.isFinite(s.currentSavingsTs) && s.currentSavingsTs > 0 ? s.currentSavingsTs : 0,
+    keptSavings: cents(s.keptSavings),
     goalName: text(s.goalName, 20, DEFAULT_SETTINGS.goalName) || DEFAULT_SETTINGS.goalName,
     goalAmount: cents(s.goalAmount),
     profile: normalizeProfile(s.profile),
