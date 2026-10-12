@@ -5,7 +5,7 @@ import { confirmDialog, toast, alertDialog } from '../overlays.js';
 import { saveSettings, eraseEverything } from '../../data/store.js';
 import * as lock from '../../data/lock.js';
 import { formatMoney } from '../../core/money.js';
-import { BACKUP_FREQS } from '../../core/settings.js';
+import { BACKUP_FREQS, backupAgeText } from '../../core/settings.js';
 import { HOUSING_OPTIONS, TRANSPORT_OPTIONS } from '../../core/benchmarks.js';
 import { openPlanSheet, openMoneySheet, openChoiceSheet, openTextSheet, openNumberSheet } from '../sheets/plan.js';
 import { openCategoryManager } from '../sheets/categories.js';
@@ -16,8 +16,10 @@ import { connectDrive, disconnectDrive, backupNowToDrive, restoreFromDriveFlow, 
 import { setupPin, confirmPin } from '../sheets/lockscreen.js';
 import { hasBackupKey } from '../../data/cloudbackup.js';
 import { openHealthCheck, healthIssues } from '../sheets/health.js';
+import { openCashSheet, currentCash } from '../sheets/cash.js';
+import { dayLabel } from '../../core/dates.js';
 
-export const APP_VERSION = '1.3.3';
+export const APP_VERSION = '1.4.0';
 
 let lockInfo = { enabled: false, pinLength: 6, autoLockMs: 60_000, biometric: false };
 let faceIdAvailable = false;
@@ -35,18 +37,8 @@ const toggleRow = ({ attr, glyph, color, title, sub, checked, disabled }) => htm
   <li class="row row--toggle">
     <span class="row__glyph-tile" data-color="${color}">${icon(glyph)}</span>
     <span class="row__body"><span class="row__title">${title}</span>${sub ? html`<span class="row__subtitle">${sub}</span>` : ''}</span>
-    <input type="checkbox" switch class="switch" data-toggle="${attr}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} aria-label="${title}">
+    <input type="checkbox" switch class="switch" data-toggle="${attr}" data-motion="switch" data-motion-key="${attr}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} aria-label="${title}">
   </li>`;
-
-function daysAgo(ts) {
-  if (!ts) return null;
-  return Math.floor((Date.now() - ts) / 86_400_000);
-}
-
-const agoText = (ts) => {
-  const d = daysAgo(ts);
-  return d === null ? '还没有备份过' : d === 0 ? '今天' : `${d} 天前`;
-};
 
 const screen = {
   id: 'settings',
@@ -58,6 +50,7 @@ const screen = {
     const housing = HOUSING_OPTIONS.find((o) => o.id === s.profile.housing)?.label;
     const transport = TRANSPORT_OPTIONS.find((o) => o.id === s.profile.transport)?.label;
     const activeRec = state.recurring.filter((r) => r.active).length;
+    const cash = currentCash();
     const autoLockLabel = lock.AUTO_LOCK_OPTIONS.find((o) => o.id === lockInfo.autoLockMs)?.label || '1 分钟';
     const freqLabel = BACKUP_FREQS.find((f) => f.id === s.backupFreq)?.label || '每周';
     const drive = s.backupDest === 'gdrive';
@@ -82,10 +75,10 @@ const screen = {
       <section class="section">
         <h2 class="section__title">储蓄</h2>
         <ul class="list">
-          ${row({ action: 'savings', glyph: 'savings', color: 'pink', title: '目前存款', value: s.currentSavings ? formatMoney(s.currentSavings, { round: true }) : '未填写' })}
+          ${row({ action: 'savings', glyph: 'wallet', color: 'pink', title: '手上的钱 · 对账', value: cash ? formatMoney(cash.balance, { round: true }) : s.currentSavings ? formatMoney(s.currentSavings, { round: true }) : '未填写' })}
           ${row({ action: 'goal', glyph: 'sparkles', color: 'orange', title: '长期目标', value: s.goalAmount ? `${s.goalName} ${formatMoney(s.goalAmount, { round: true })}` : '未设定' })}
         </ul>
-        <p class="section__footer">用来计算个人 Runway：不靠收入还能撑几个月。投资另外在「投资」页管理。</p>
+        <p class="section__footer">${cash ? `${dayLabel(cash.at)}对账，之后按记录自动加减。` : ''}隔一段时间对一次账，就能发现漏记；「今天还能花」也不会超过你真正有的钱。也用来算个人 Runway。投资另外在「投资」页管理。</p>
       </section>
 
       <section class="section">
@@ -127,11 +120,11 @@ const screen = {
           ${row({ action: 'backupfreq', glyph: 'subscriptions', color: 'teal', title: '自动备份', value: freqLabel, sub: '打开 App 时检查，到时间就提醒你一键备份' })}
           ${row({ action: 'backupdest', glyph: drive ? 'cloud' : 'upload', color: drive ? 'blue' : 'green', title: '备份位置', value: drive ? 'Google Drive' : 'iCloud 云盘' })}
           ${drive ? html`
-            ${row({ action: 'drivebackup', glyph: 'cloud', color: 'blue', title: s.gdriveConnected ? '立即备份到 Google Drive' : '连接 Google Drive', sub: s.gdriveConnected ? `上次：${agoText(s.lastGdriveBackupAt)} · 已用恢复密钥加密` : '先用只有你持有的恢复密钥加密，再上传' })}
+            ${row({ action: 'drivebackup', glyph: 'cloud', color: 'blue', title: s.gdriveConnected ? '立即备份到 Google Drive' : '连接 Google Drive', sub: s.gdriveConnected ? `上次：${backupAgeText(s.lastGdriveBackupAt)} · 已用恢复密钥加密` : '先用只有你持有的恢复密钥加密，再上传' })}
             ${hasDriveKey ? row({ action: 'recoverykey', glyph: 'key', color: 'orange', title: '恢复密钥', sub: '换新手机还原时需要；可以更换' }) : ''}
             ${s.gdriveConnected ? row({ action: 'drivedisconnect', title: '中断 Google Drive 连接', danger: true, chevron: false }) : ''}
           ` : html`
-            ${row({ action: 'backup', glyph: 'upload', color: 'green', title: '立即备份', sub: `上次：${agoText(s.lastBackupAt)} · 分享菜单选「存储到文件」` })}
+            ${row({ action: 'backup', glyph: 'upload', color: 'green', title: '立即备份', sub: `上次：${backupAgeText(s.lastBackupAt)} · 分享菜单选「存储到文件」` })}
           `}
         </ul>
         <ul class="list">
@@ -206,11 +199,9 @@ const screen = {
       case 'target':
         await openPlanSheet();
         break;
-      case 'savings': {
-        const v = await openMoneySheet({ title: '目前存款', label: '现在总共有多少存款', value: s.currentSavings, hint: '包括银行存款、定存等随时可以动用的钱（投资另计）。只存在这台手机。' });
-        if (v !== null) await saveSettings({ currentSavings: v });
+      case 'savings':
+        await openCashSheet();
         break;
-      }
       case 'goal': {
         const name = await openTextSheet({ title: '长期目标', label: '目标名称', value: s.goalName, placeholder: '例如：应急金、买电脑' });
         if (name === null) break;

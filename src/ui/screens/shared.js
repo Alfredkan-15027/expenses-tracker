@@ -6,7 +6,7 @@ import { addMonths, dayLabel, monthLabel } from '../../core/dates.js';
 export function txRow(t, cat, { showDate = false } = {}) {
   const title = t.note || cat.name;
   const sub = [t.note ? cat.name : null, showDate ? dayLabel(t.date) : null].filter(Boolean).join(' · ');
-  return html`<li class="swipe">
+  return html`<li class="swipe" data-motion="row" data-motion-key="${t.id}">
     <button type="button" class="swipe__action" data-action="delete-tx" data-id="${t.id}" aria-label="删除">${icon('trash')}<span>删除</span></button>
     <div class="swipe__content">
       <button type="button" class="row row--tx" data-action="edit-tx" data-id="${t.id}">

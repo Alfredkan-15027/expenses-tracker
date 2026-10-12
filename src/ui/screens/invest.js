@@ -3,10 +3,11 @@ import { html, icon, catIcon, money } from '../html.js';
 import { progress, projectionChart } from '../charts.js';
 import { statusBadge } from './shared.js';
 import {
-  planState, projectionSeries, portfolioSummary, holdingSummary, yearsBetween, FREQ_OPTIONS, HOLDING_KINDS,
+  planState, projectionSeries, portfolioSummary, holdingSummary, yearsBetween, addPeriods, FREQ_OPTIONS, HOLDING_KINDS,
 } from '../../core/invest.js';
 import { formatMoney, formatPercent } from '../../core/money.js';
-import { dayLabel } from '../../core/dates.js';
+import { trackingStart } from '../../core/analysis.js';
+import { dayLabel, parseISO } from '../../core/dates.js';
 import {
   openInvestActions, openFlowSheet, openValuationSheet, openHoldingDetail, openHoldingEditor, openPlanEditor, holdingIcon,
 } from '../sheets/invest.js';
@@ -20,19 +21,35 @@ const STATUS = {
   missed: ['bad', 'warning', '期限已到，未达标'],
 };
 
-const pct = (r) => `${(r * 100).toFixed(1).replace(/\.0$/, '')}%`;
+// A return assumption as entered (8%, 9.5%, 8.25%).
+const pct = (r) => `${+(r * 100).toFixed(2)}%`;
+// An actual return or gain with one decimal: a real minus sign, and nothing that rounds to 0 shows a sign.
+const pct1 = (r, { sign = false } = {}) => {
+  const v = Math.round(r * 1000) / 10;
+  return `${v < 0 ? '−' : v > 0 && sign ? '+' : ''}${Math.abs(v).toFixed(1)}%`;
+};
+// Goal completion rounded down, so it never reads 100% before the target is reached.
+const progressPct = (r) => {
+  if (r >= 1) return '100%';
+  const digits = r < 0.1 || r >= 0.99 ? 1 : 0;
+  const f = 10 ** (digits + 2);
+  return formatPercent(Math.floor(r * f + 1e-9) / f, digits);
+};
 
 function statusPill(status) {
   const [tone, ic, label] = STATUS[status] || STATUS.preparing;
   return html`<span class="badge" data-tone="${tone}">${icon(ic)}${label}</span>`;
 }
 
-function timeLeft(years) {
-  const totalMonths = Math.max(0, Math.round(years * 12));
-  const y = Math.floor(totalMonths / 12);
-  const m = totalMonths % 12;
-  if (!y && !m) return '已到期';
-  return `${y ? `${y} 年` : ''}${m ? ` ${m} 个月` : ''}`.trim();
+/** 「还剩 2 年 3 个月」 in whole calendar months, 「还剩 14 天」 in the last month, 「已到期」 from the deadline on. */
+function timeLeft(today, deadline) {
+  if (deadline <= today) return '已到期';
+  let months = 0;
+  while (addPeriods(today, months + 1, 'monthly') <= deadline) months += 1;
+  if (!months) return `还剩 ${Math.round((parseISO(deadline) - parseISO(today)) / 86_400_000)} 天`;
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  return `还剩 ${`${y ? `${y} 年` : ''}${m ? ` ${m} 个月` : ''}`.trim()}`;
 }
 
 /** Portfolio value at every date something happened, for the "actual" line. */
@@ -61,6 +78,7 @@ const screen = {
     const st = planState({
       invest: state.settings.invest, flows: state.investFlows, valuations: state.valuations,
       holdings: state.holdings, transactions: state.transactions, asOf: today,
+      since: trackingStart(state.settings, state.transactions),
     });
     const p = st.invest;
     const freq = FREQ_OPTIONS.find((f) => f.id === p.freq);
@@ -88,8 +106,8 @@ const screen = {
         <div class="hero-amount">${money(st.current, { cls: 'money--hero' })}</div>
         ${progress({ ratio: st.progress, marker: st.started ? Math.min(1, st.elapsedYears / years) : null, tone: 'save', label: '目标完成度' })}
         <div class="hero-foot">
-          <span>完成 <strong>${formatPercent(st.progress, st.progress < 0.1 ? 1 : 0)}</strong></span>
-          <span>${st.started ? `还剩 ${timeLeft(st.remainingYears)} · ${dayLabel(st.deadline)}到期` : '从第一次投入开始计时'}</span>
+          <span>完成 <strong>${progressPct(st.progress)}</strong></span>
+          <span>${st.started ? `${timeLeft(today, st.deadline)} · ${dayLabel(st.deadline)}到期` : '从第一次投入开始计时'}</span>
         </div>
       </section>
 
@@ -157,6 +175,7 @@ const screen = {
           ${holdings.map((h) => {
             const s = holdingSummary(h.id, state.investFlows, state.valuations, today);
             const weight = pf.value > 0 ? s.value / pf.value : 0;
+            const delta = s.gainRatio === null ? 0 : Math.round(s.gainRatio * 1000); // as shown, in 0.1%
             return html`<li><button type="button" class="row row--holding" data-holding-id="${h.id}">
               ${catIcon(holdingIcon(h))}
               <span class="row__body">
@@ -165,7 +184,7 @@ const screen = {
               </span>
               <span class="row__trail">
                 <span class="row__value">${formatMoney(s.value, { round: true })}</span>
-                ${s.gainRatio !== null ? html`<span class="delta ${s.gain < 0 ? 'is-down' : 'is-up'}">${s.gain < 0 ? '' : '+'}${formatPercent(s.gainRatio, 1)}</span>` : ''}
+                ${s.gainRatio !== null ? html`<span class="delta ${delta < 0 ? 'is-down' : delta > 0 ? 'is-up' : ''}">${pct1(s.gainRatio, { sign: true })}</span>` : ''}
               </span>
               ${icon('chevron-right', 'row__chevron')}
             </button></li>`;
@@ -212,7 +231,7 @@ function triggerCard(st) {
     <ul class="plan__facts">
       <li><span>本月至今</span><strong>${formatMoney(t.thisMonth, { round: true })}</strong></li>
       <li><span>上个月</span><strong>${formatMoney(t.lastMonth, { round: true })}</strong></li>
-      <li><span>近 3 个月平均</span><strong>${formatMoney(t.avg3, { round: true })}</strong></li>
+      ${t.avgMonths > 1 ? html`<li><span>近 ${t.avgMonths} 个月平均</span><strong>${formatMoney(t.avg3, { round: true })}</strong></li>` : ''}
     </ul>
     ${t.reached ? html`<button type="button" class="btn btn--primary btn--block" data-invest="first-in">记录第一笔投入</button>` : html`<p class="card__footnote">${icon('info')} 收入按「记录」里的收入计算。达到后这里会提醒你。</p>`}
   </section>`;
@@ -221,17 +240,19 @@ function triggerCard(st) {
 function performanceCard(st, pf, p) {
   const bandText = { below: `低于 ${pct(p.rateLow)}`, within: `在 ${pct(p.rateLow)}–${pct(p.rateHigh)} 之间`, above: `高于 ${pct(p.rateHigh)}` }[st.returnBand];
   const bandTone = { below: 'warn', within: 'good', above: 'info' }[st.returnBand];
+  // Whole ringgit as shown: a gain that rounds to RM 0 is neither + nor green.
+  const gainRm = Math.sign(pf.gain) * Math.round(Math.abs(pf.gain) / 100);
   return html`<section class="section">
     <h2 class="section__title">实际表现</h2>
     <div class="stat-grid">
       <div class="stat"><span class="stat__label">${pf.withdrawn ? '累计投入' : '投入本金'}</span><span class="stat__value">${formatMoney(pf.invested, { round: true })}</span>
         ${pf.withdrawn ? html`<span class="stat__note">已取出 ${formatMoney(pf.withdrawn, { round: true })}</span>` : ''}</div>
       <div class="stat"><span class="stat__label">目前市值</span><span class="stat__value">${formatMoney(pf.value, { round: true })}</span></div>
-      <div class="stat"><span class="stat__label">盈亏</span><span class="stat__value ${pf.gain < 0 ? 'is-negative' : 'is-income'}">${formatMoney(pf.gain, { round: true, sign: true })}</span></div>
-      <div class="stat"><span class="stat__label">年化回报</span><span class="stat__value">${pf.annualReturn === null ? '—' : formatPercent(pf.annualReturn, 1)}</span></div>
+      <div class="stat"><span class="stat__label">盈亏</span><span class="stat__value ${gainRm < 0 ? 'is-negative' : gainRm > 0 ? 'is-income' : ''}">${formatMoney(pf.gain, { round: true, sign: gainRm > 0 })}</span></div>
+      <div class="stat"><span class="stat__label">年化回报</span><span class="stat__value">${st.shownReturn === null ? '—' : pct1(st.shownReturn)}</span></div>
     </div>
-    ${pf.annualReturn !== null ? html`<p class="insight-line" data-tone="${bandTone}">${icon(bandTone === 'good' ? 'check' : bandTone === 'warn' ? 'warning' : 'info')}
-      <span>实际年化回报 ${formatPercent(pf.annualReturn, 1)}，${bandText}${pf.heldYears < 1 ? '。持有不到 1 年，年化数字波动会很大，仅供参考' : ''}。</span></p>` : ''}
+    ${st.shownReturn !== null ? html`<p class="insight-line" data-tone="${bandTone}">${icon(bandTone === 'good' ? 'check' : bandTone === 'warn' ? 'warning' : 'info')}
+      <span>实际年化回报 ${pct1(st.shownReturn)}，${bandText}${pf.heldYears < 1 ? '。持有不到 1 年，年化数字波动会很大，仅供参考' : ''}。</span></p>` : ''}
   </section>`;
 }
 

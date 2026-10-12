@@ -19,24 +19,27 @@ const screen = {
     const cats = categoryMap(state.categories);
     const q = ui.query.trim().toLowerCase();
     const searching = q.length > 0;
+    // Amounts are searched the way they are shown ("−RM 1,234.00"): sign, RM and grouping commas don't matter.
+    const qAmount = q.replace(/^[−+-]/, '').replace(/^rm\s*/, '').replace(/,/g, '');
 
     let list = state.transactions;
     if (searching) {
       list = list.filter((t) => {
         const c = cats.get(t.categoryId);
         return (t.note || '').toLowerCase().includes(q) || (c?.name || '').toLowerCase().includes(q)
-          || (t.amount / 100).toFixed(2).includes(q);
+          || (qAmount !== '' && (t.amount / 100).toFixed(2).includes(qAmount));
       });
     } else {
       list = list.filter((t) => monthOf(t.date) === ui.ym);
     }
     if (ui.filter !== 'all') list = list.filter((t) => t.type === ui.filter);
     list = [...list].sort((a, b) => (a.date === b.date ? b.createdAt - a.createdAt : a.date < b.date ? 1 : -1));
-    const truncated = searching && list.length > MAX_SEARCH_RESULTS;
-    if (truncated) list = list.slice(0, MAX_SEARCH_RESULTS);
-
+    // The summary covers every match; only the rows shown are capped.
+    const count = list.length;
     const expense = list.filter((t) => t.type === 'expense').reduce((a, t) => a + t.amount, 0);
     const income = list.filter((t) => t.type === 'income').reduce((a, t) => a + t.amount, 0);
+    const truncated = searching && count > MAX_SEARCH_RESULTS;
+    if (truncated) list = list.slice(0, MAX_SEARCH_RESULTS);
 
     const groups = [];
     for (const t of list) {
@@ -60,12 +63,12 @@ const screen = {
         </div>
       </div>
 
-      ${searching ? html`<p class="section__meta section__meta--block">在所有月份中找到 ${list.length}${truncated ? '+' : ''} 笔</p>` : monthSwitcher(ui.ym, current)}
+      ${searching ? html`<p class="section__meta section__meta--block">在所有月份中找到 ${count} 笔${truncated ? `（下面只列出最近 ${MAX_SEARCH_RESULTS} 笔）` : ''}</p>` : monthSwitcher(ui.ym, current)}
 
       <div class="summary-row">
         <div class="summary-row__item"><span>支出</span><strong>${formatMoney(expense)}</strong></div>
         <div class="summary-row__item"><span>收入</span><strong class="is-income">${formatMoney(income)}</strong></div>
-        <div class="summary-row__item"><span>笔数</span><strong>${list.length}</strong></div>
+        <div class="summary-row__item"><span>笔数</span><strong>${count}</strong></div>
       </div>
 
       ${groups.length ? groups.map((g) => {
