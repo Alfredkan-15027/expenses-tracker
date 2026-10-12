@@ -94,22 +94,29 @@ export function addYears(iso, n) {
 
 /**
  * The plan makes one contribution at the start of every period: planStart + k periods (calendar dates),
- * k = 0 … years·m − 1. A scheduled contribution counts as made when money went in within half a period of its
- * date, so an early or late payment is not counted twice. Returns the contributions still to make as
+ * k = 0 … years·m − 1. A scheduled contribution counts as made when money went in within its window: from
+ * halfway after the previous date to halfway before the next one (half a period at both ends of the plan).
+ * Windows never overlap — months and quarters differ in length — so an early or late payment is not counted
+ * twice; one exactly halfway counts for the earlier date. Returns the contributions still to make as
  * { k, date, at, now } where `at` is years after asOf: an unpaid one whose date has passed but whose window is
  * still open is due now (at = 0); later ones at their scheduled date.
  */
 export function contributionSchedule({ planStart, years, freq = 'yearly', asOf, paidTimes = [] }) {
   const m = perYear(freq);
   const half = 0.5 / m;
+  const n = Math.round(years * m);
   const elapsed = Math.max(0, yearsBetween(planStart, asOf));
+  const dates = Array.from({ length: n }, (_, k) => addPeriods(planStart, k, freq));
+  const taus = dates.map((d) => yearsBetween(planStart, d));
+  // A hair past each boundary, so a payment exactly halfway falls on the earlier side despite rounding.
+  const TIE = 1e-9;
   const out = [];
-  for (let k = 0; k < Math.round(years * m); k += 1) {
-    const date = addPeriods(planStart, k, freq);
-    const tau = yearsBetween(planStart, date);
-    if (paidTimes.some((x) => x > tau - half && x <= tau + half)) continue;
-    if (date > asOf) out.push({ k, date, at: tau - elapsed, now: false });
-    else if (elapsed < tau + half) out.push({ k, date: asOf, at: 0, now: true });
+  for (let k = 0; k < n; k += 1) {
+    const from = (k > 0 ? (taus[k - 1] + taus[k]) / 2 : taus[k] - half) + TIE;
+    const to = (k < n - 1 ? (taus[k] + taus[k + 1]) / 2 : taus[k] + half) + TIE;
+    if (paidTimes.some((x) => x > from && x <= to)) continue;
+    if (dates[k] > asOf) out.push({ k, date: dates[k], at: taus[k] - elapsed, now: false });
+    else if (elapsed <= to) out.push({ k, date: asOf, at: 0, now: true });
   }
   return out;
 }
@@ -201,29 +208,36 @@ export function xirr(flows) {
   return (lo + hi) / 2;
 }
 
+/** Date order; on the same day, the order the records were made in. */
+const byTime = (a, b) => (a.date === b.date ? (a.createdAt || 0) - (b.createdAt || 0) : a.date < b.date ? -1 : 1);
+/** Record x came after record y (same day: made later). */
+const isAfter = (x, y) => x.date > y.date || (x.date === y.date && (x.createdAt || 0) > (y.createdAt || 0));
+
 /**
  * Value and cost of one holding as of a date.
  * Market value = latest valuation, adjusted by money added / taken out after that valuation.
+ * A first valuation with no money in or out before it is what the holding was already worth when it was added:
+ * its opening principal (`opening`), counted as put in on that date.
  */
 export function holdingSummary(holdingId, flows, valuations, asOf = todayISO()) {
-  const f = flows.filter((x) => x.holdingId === holdingId && x.date <= asOf);
-  const v = valuations.filter((x) => x.holdingId === holdingId && x.date <= asOf)
-    .sort((a, b) => (a.date === b.date ? (a.createdAt || 0) - (b.createdAt || 0) : a.date < b.date ? -1 : 1));
-  const invested = f.reduce((s, x) => s + (x.type === 'in' ? x.amount : 0), 0);
+  const f = flows.filter((x) => x.holdingId === holdingId && x.date <= asOf).sort(byTime);
+  const v = valuations.filter((x) => x.holdingId === holdingId && x.date <= asOf).sort(byTime);
+  const opening = v.length && f.every((x) => isAfter(x, v[0])) ? { date: v[0].date, amount: v[0].value } : null;
+  const invested = (opening?.amount || 0) + f.reduce((s, x) => s + (x.type === 'in' ? x.amount : 0), 0);
   const withdrawn = f.reduce((s, x) => s + (x.type === 'out' ? x.amount : 0), 0);
   const last = v[v.length - 1] || null;
-  let value;
-  if (last) {
-    const after = f.filter((x) => x.date > last.date || (x.date === last.date && (x.createdAt || 0) > (last.createdAt || 0)));
-    value = last.value + after.reduce((s, x) => s + (x.type === 'in' ? x.amount : -x.amount), 0);
-  } else {
-    value = invested - withdrawn; // no valuation yet: assume it is worth what was put in
+  // From the latest valuation (none yet: worth what was put in), apply the later money in and out in order.
+  // A sale can take out more than the recorded value — the rest was profit — but it never leaves a debt
+  // that the next deposit would pay off.
+  let value = last ? last.value : 0;
+  for (const x of f) {
+    if (!last || isAfter(x, last)) value = Math.max(0, value + (x.type === 'in' ? x.amount : -x.amount));
   }
   value = Math.max(0, value);
   // Total gain = what it is worth now + what was already taken out − everything put in (never a negative principal).
   const gain = value + withdrawn - invested;
   return {
-    holdingId, invested, withdrawn, value, gain,
+    holdingId, invested, withdrawn, value, gain, opening,
     gainRatio: invested > 0 ? gain / invested : null,
     lastValuationDate: last?.date || null,
     firstFlowDate: f.reduce((m, x) => (!m || x.date < m ? x.date : m), ''),
@@ -238,8 +252,11 @@ export function portfolioSummary({ holdings, flows, valuations, asOf = todayISO(
   const invested = rows.reduce((s, r) => s + r.invested, 0);
   const withdrawn = rows.reduce((s, r) => s + r.withdrawn, 0);
   const known = new Set(ids);
-  const cash = flows.filter((f) => known.has(f.holdingId) && f.date <= asOf)
-    .map((f) => ({ date: f.date, amount: f.type === 'in' ? -f.amount : f.amount }));
+  const cash = [
+    ...rows.filter((r) => r.opening).map((r) => ({ date: r.opening.date, amount: -r.opening.amount })),
+    ...flows.filter((f) => known.has(f.holdingId) && f.date <= asOf)
+      .map((f) => ({ date: f.date, amount: f.type === 'in' ? -f.amount : f.amount })),
+  ];
   if (value > 0) cash.push({ date: asOf, amount: value });
   const firstDate = cash.reduce((m, x) => (!m || x.date < m ? x.date : m), '');
   const heldYears = firstDate ? yearsBetween(firstDate, asOf) : 0;
@@ -262,8 +279,11 @@ export function portfolioSummary({ holdings, flows, valuations, asOf = todayISO(
   };
 }
 
-/** Where the plan stands today. */
-export function planState({ invest, flows, valuations, holdings, transactions = [], asOf = todayISO() }) {
+/**
+ * Where the plan stands today. since: first day of tracking (trackingStart), so the income average leaves out
+ * months that were never recorded.
+ */
+export function planState({ invest, flows, valuations, holdings, transactions = [], asOf = todayISO(), since = '' }) {
   const s = sanitizeInvest(invest);
   const pf = portfolioSummary({ holdings, flows, valuations, asOf });
   const firstFlow = flows.filter((f) => f.type === 'in').reduce((m, f) => (!m || f.date < m ? f.date : m), '');
@@ -272,7 +292,9 @@ export function planState({ invest, flows, valuations, holdings, transactions = 
   const planStart = started ? startDate : asOf;
   const deadline = addYears(planStart, s.years);
   const mid = (s.rateLow + s.rateHigh) / 2;
-  const current = started ? pf.value : 0;
+  // What the holdings are worth counts even before the first 投入 (e.g. an existing fund entered with its market
+  // value); only the 10-year clock waits for that first 投入.
+  const current = pf.value;
   const elapsedYears = started ? Math.max(0, yearsBetween(planStart, asOf)) : 0;
   // Measured from planStart like the projection chart, so its last point equals 到期预计 exactly.
   const remainingYears = Math.max(0, yearsBetween(planStart, deadline) - elapsedYears);
@@ -308,17 +330,21 @@ export function planState({ invest, flows, valuations, holdings, transactions = 
     else status = 'behind';
   }
 
-  // Trend of monthly income against the start condition.
+  // Trend of monthly income against the start condition: money received so far (not income dated later this
+  // month); the average covers only the last 3 months that were tracked (avg3 null when none was).
   const month = monthOf(asOf);
-  const incomeOf = (ym) => transactions.reduce((sum, t) => (t.type === 'income' && monthOf(t.date) === ym ? sum + t.amount : sum), 0);
-  const lastMonths = [1, 2, 3].map((k) => incomeOf(addMonths(month, -k)));
+  const incomeOf = (ym) => transactions.reduce((sum, t) => (t.type === 'income' && t.date <= asOf && monthOf(t.date) === ym ? sum + t.amount : sum), 0);
+  const lastMonths = [1, 2, 3].map((k) => addMonths(month, -k)).filter((ym) => !since || ym >= monthOf(since)).map(incomeOf);
   const trigger = {
     threshold: s.triggerIncome,
     thisMonth: incomeOf(month),
-    lastMonth: lastMonths[0],
-    avg3: Math.round(lastMonths.reduce((a, b) => a + b, 0) / 3),
+    lastMonth: incomeOf(addMonths(month, -1)),
+    avg3: lastMonths.length ? Math.round(lastMonths.reduce((a, b) => a + b, 0) / lastMonths.length) : null,
+    avgMonths: lastMonths.length,
   };
   trigger.reached = s.triggerIncome > 0 && (trigger.lastMonth >= s.triggerIncome || trigger.thisMonth >= s.triggerIncome);
+  // The screen prints the return with one decimal (7.96% → 8.0%): judge it against the range the same way.
+  const shownReturn = pf.annualReturn === null ? null : Math.round(pf.annualReturn * 1000) / 1000;
 
   const annualPlanned = planned * perYear(s.freq);
   return {
@@ -327,8 +353,9 @@ export function planState({ invest, flows, valuations, holdings, transactions = 
     annualPlanned,
     shareOfTriggerIncome: s.triggerIncome > 0 ? annualPlanned / (s.triggerIncome * 12) : null,
     progress: s.target > 0 ? Math.min(1, current / s.target) : 0,
-    returnBand: pf.annualReturn === null ? 'none'
-      : pf.annualReturn < s.rateLow ? 'below' : pf.annualReturn > s.rateHigh ? 'above' : 'within',
+    shownReturn,
+    returnBand: shownReturn === null ? 'none'
+      : shownReturn < s.rateLow ? 'below' : shownReturn > s.rateHigh ? 'above' : 'within',
     valuationAgeDays: pf.stalestValue ? Math.round((parseISO(asOf) - parseISO(pf.stalestValue)) / DAY_MS) : null,
   };
 }

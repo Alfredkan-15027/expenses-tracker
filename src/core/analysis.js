@@ -1,12 +1,13 @@
 // Pure analysis functions. No DOM, no storage — safe to unit test in Node.
-import { addDays, addMonths, dateInMonth, dayLabel, monthOf, monthRange } from './dates.js';
-import { daysBetween, inPeriod, monthPeriod, periodFor, prevPeriod } from './periods.js';
+import { addDays, addMonths, dateInMonth, dayLabel, dayOf, monthOf, monthRange } from './dates.js';
+import { CYCLE_INCOME_CATEGORIES, daysBetween, expectedEnd, inPeriod, monthPeriod, payCycle, periodFor, prevPeriod } from './periods.js';
 import { categoryMap } from './categories.js';
+import { findManualMatch } from './recurring.js';
 import {
   categoryRanges, livingCostTiers, normalizeProfile, TIER_LABELS,
   SAVINGS_RATE_GOOD, SAVINGS_RATE_OK, NEEDS_SHARE_MAX, WANTS_SHARE_MAX, RUNWAY_TARGET_MONTHS,
 } from './benchmarks.js';
-import { formatMoney, formatPercent } from './money.js';
+import { formatMoney, formatPercent, roundedRest } from './money.js';
 
 const RM = 100; // cents per ringgit
 
@@ -68,12 +69,15 @@ export function personalByCategory(txs, ymOrPeriod) {
   return out;
 }
 
-/** Recurring expenses still to come after `today` up to `end` (default: end of this month), not yet generated. */
-export function upcomingRecurring(recurring = [], today, end = '') {
+/**
+ * Recurring expenses (or, with type 'income', recurring income) still to come after `today` up to `end`
+ * (default: end of this month), not yet generated.
+ */
+export function upcomingRecurring(recurring = [], today, end = '', type = 'expense') {
   const last = end || dateInMonth(monthOf(today), 31);
   let sum = 0;
   for (const r of recurring) {
-    if (!r.active || r.type !== 'expense') continue;
+    if (!r.active || r.type !== type) continue;
     for (const m of monthRange(monthOf(today), monthOf(last))) {
       if (r.lastMonth && r.lastMonth >= m) continue;
       if (r.startMonth && r.startMonth > m) continue;
@@ -87,7 +91,8 @@ export function upcomingRecurring(recurring = [], today, end = '') {
 /**
  * First day of tracking: the setup date — or, when past spending was typed in after setup (entries on at
  * least 3 different days before it), the earliest of those entries. One or two catch-up entries (e.g. this
- * month's rent, already paid) keep the setup date. Entries made by fixed items never count.
+ * month's rent, already paid) keep the setup date. Entries made by fixed items never count, and neither does
+ * income (past salaries typed in for the record are not spending history).
  */
 export function trackingStart(settings, txs) {
   const setup = settings?.startDate || '';
@@ -95,7 +100,7 @@ export function trackingStart(settings, txs) {
   const days = new Set();
   let earliest = setup;
   for (const t of txs) {
-    if (t.recurringId || t.date >= setup) continue;
+    if (t.type !== 'expense' || t.recurringId || t.date >= setup) continue;
     days.add(t.date);
     if (t.date < earliest) earliest = t.date;
   }
@@ -107,15 +112,21 @@ export const MODEL_MIN_DAYS = 7;
 const MODEL_STEADY_DAYS = 14; // below this the pace is only a rough guide
 const nearAmount = (a, b) => Math.abs(a - b) <= Math.max(100, Math.round(b * 0.05));
 
+// Bills that come once a month or less often (rent, utilities, subscriptions, money for family, insurance, courses).
+// The monthly model spreads them over at least 30 days; a partly tracked period does not pace them (see partialStatus).
+const LUMP_SUM_CATEGORIES = new Set(['housing', 'utilities', 'subscriptions', 'family', 'health', 'learning']);
+
 /**
  * What a month of spending looks like right now — the basis for the living-cost verdict of the running
  * period and for runway. Fixed items (设置 → 固定项目) count at their set monthly amount; day-to-day
  * spending counts at its average daily pace over the last ≤90 tracked days, × 30. Nothing is extrapolated from
- * a single lump (rent, insurance, a debt payment), and period boundaries don't matter.
+ * a single lump (rent, insurance, a debt payment): rent paid by hand counts once a month, and the other bills typed in
+ * by hand (LUMP_SUM_CATEGORIES) are spread over at least 30 days. Period boundaries don't matter.
  * An entry that stands for a fixed item — made by one (even one since deleted or paused), or typed in by hand at
- * its usual amount — belongs to the fixed side and is left out of the pace.
+ * its usual amount in a month the item made no entry of its own — belongs to the fixed side and is left out of the pace.
  * One-off business spending is not part of the month; it is reported separately.
  * `byCategory`: the same estimate per personal category (cents / month), so category flags agree with the total.
+ * `handRent`: rent paid by hand as a fixed item would be (due on the day it was last paid), or null.
  */
 export function spendingModel({ txs, recurring = [], today, since = '' }) {
   const active = recurring.filter((r) => r.active && r.type === 'expense');
@@ -127,7 +138,22 @@ export function spendingModel({ txs, recurring = [], today, since = '' }) {
     fixedPersonal += r.amount;
     fixedBy.set(r.categoryId, (fixedBy.get(r.categoryId) || 0) + r.amount);
   }
-  const coversFixed = (t) => !!t.recurringId || active.some((r) => r.categoryId === t.categoryId && nearAmount(t.amount, r.amount));
+  // A hand-typed entry stands for a fixed item only in a month the item made no entry of its own, and only one a month
+  // (the closest amount): a RM 50 Touch 'n Go reload is not the RM 50 My50 pass every time.
+  const made = new Set(txs.filter((t) => t.recurringId).map((t) => `${t.recurringId}|${monthOf(t.date)}`));
+  const standIns = new Set();
+  for (const r of active) {
+    const best = new Map(); // month → closest hand-typed entry
+    for (const t of txs) {
+      if (t.type !== 'expense' || t.recurringId || standIns.has(t) || t.categoryId !== r.categoryId || !nearAmount(t.amount, r.amount)) continue;
+      const m = monthOf(t.date);
+      if (made.has(`${r.id}|${m}`)) continue;
+      const b = best.get(m);
+      if (!b || Math.abs(t.amount - r.amount) < Math.abs(b.amount - r.amount)) best.set(m, t);
+    }
+    for (const t of best.values()) standIns.add(t);
+  }
+  const coversFixed = (t) => !!t.recurringId || standIns.has(t);
 
   const expenses = txs.filter((t) => t.type === 'expense' && t.date <= today);
   let from = since || expenses.reduce((a, t) => (!a || t.date < a ? t.date : a), '');
@@ -135,15 +161,18 @@ export function spendingModel({ txs, recurring = [], today, since = '' }) {
     return {
       fixedPersonal, fixedBusiness, variable: 0, variableDaily: 0, variableMonthly: 0, personalMonthly: fixedPersonal,
       totalMonthly: fixedPersonal + fixedBusiness, oneOffBusiness: 0, days: 0, from: '', enough: false, steady: false, byCategory: fixedBy,
+      handRent: null,
     };
   }
   const floor = addDays(today, -(MODEL_WINDOW_DAYS - 1));
   if (from < floor) from = floor;
   const days = Math.max(1, daysBetween(from, today) + 1);
+  const lumpDays = Math.max(days, 30);
 
-  // Rent paid by hand (no fixed item for it): count the latest month's rent as fixed, not as pace.
+  // Rent paid by hand (no fixed item for it) counts as fixed, not as pace: the latest month's housing — unless all that
+  // month holds so far is small next to the month before (a fee paid before this month's rent): then the month before's.
   const rentByHand = !active.some((r) => r.categoryId === 'housing');
-  const rentMonths = new Map();
+  const rentMonths = new Map(); // month → { total, top: its largest payment, day: the day of that payment }
   const variableBy = new Map();
   let variable = 0;
   let oneOffBusiness = 0;
@@ -152,34 +181,137 @@ export function spendingModel({ txs, recurring = [], today, since = '' }) {
     if (isBusiness(t)) { oneOffBusiness += t.amount; continue; }
     if (rentByHand && t.categoryId === 'housing') {
       const m = monthOf(t.date);
-      rentMonths.set(m, (rentMonths.get(m) || 0) + t.amount);
+      const e = rentMonths.get(m) || { total: 0, top: 0, day: 1 };
+      e.total += t.amount;
+      if (t.amount > e.top) { e.top = t.amount; e.day = dayOf(t.date); }
+      rentMonths.set(m, e);
       continue;
     }
     variable += t.amount;
     variableBy.set(t.categoryId, (variableBy.get(t.categoryId) || 0) + t.amount);
   }
+  let handRent = null;
   if (rentMonths.size) {
-    const rent = rentMonths.get([...rentMonths.keys()].sort().pop());
+    const months = [...rentMonths.keys()].sort();
+    let paid = months[months.length - 1];
+    const before = months[months.length - 2];
+    if (before && rentMonths.get(paid).top * 2 < rentMonths.get(before).top) paid = before;
+    const { total: rent, day } = rentMonths.get(paid);
+    handRent = { type: 'expense', active: true, categoryId: 'housing', amount: rent, day, lastMonth: paid };
     fixedPersonal += rent;
     fixedBy.set('housing', (fixedBy.get('housing') || 0) + rent);
   }
-  const variableDaily = variable / days;
+  // Day-to-day spending at its daily pace; bills (LUMP_SUM_CATEGORIES) over at least 30 days, so with under a month
+  // of records one payment is not multiplied.
+  const lump = [...variableBy].reduce((a, [id, v]) => a + (LUMP_SUM_CATEGORIES.has(id) ? v : 0), 0);
+  const variableDaily = (variable - lump + (lump * days) / lumpDays) / days;
   const variableMonthly = Math.round(variableDaily * 30);
   const byCategory = new Map(fixedBy);
-  for (const [id, v] of variableBy) byCategory.set(id, (byCategory.get(id) || 0) + Math.round((v / days) * 30));
+  for (const [id, v] of variableBy) {
+    byCategory.set(id, (byCategory.get(id) || 0) + Math.round((v / (LUMP_SUM_CATEGORIES.has(id) ? lumpDays : days)) * 30));
+  }
   return {
     fixedPersonal, fixedBusiness, variable, variableDaily, variableMonthly,
     personalMonthly: fixedPersonal + variableMonthly,
     totalMonthly: fixedPersonal + fixedBusiness + variableMonthly,
-    oneOffBusiness, days, from, enough: days >= MODEL_MIN_DAYS, steady: days >= MODEL_STEADY_DAYS, byCategory,
+    oneOffBusiness, days, from, enough: days >= MODEL_MIN_DAYS, steady: days >= MODEL_STEADY_DAYS, byCategory, handRent,
   };
 }
 
 /**
- * What a period may spend in total: income basis − savings target; income basis = expected income, or the period's
- * actual income when none is set. A period tracking started in the middle of is prorated to the days that count.
+ * Money on hand now (对账): the figure last filled in (设置 → 目前存款, `currentSavings` on `currentSavingsAt`) carried
+ * forward by what was recorded after it — + income − spending − money moved into investments (+ taken out).
+ * Entries dated before that day are taken as already in the figure; entries on that day count when they were logged
+ * after it was filled in (`currentSavingsTs`; without one, that day's entries are taken as included). Entries dated
+ * after today don't count yet. Null when it was never filled in.
+ * `todayOut`: today's spending in it that a fixed item didn't make (for today's cash allowance).
  */
-export function periodBudget({ txs, settings, period: p }) {
+export function cashOnHand({ txs, settings, flows = [], today }) {
+  const at = settings?.currentSavingsAt || '';
+  if (!at) return null;
+  const ts = settings.currentSavingsTs || 0;
+  const after = (date, createdAt) => date > at || (date === at && ts > 0 && (createdAt || 0) > ts);
+  let income = 0;
+  let spent = 0;
+  let invested = 0;
+  let count = 0;
+  let todayOut = 0;
+  for (const t of txs) {
+    if (t.date > today || !after(t.date, t.createdAt)) continue;
+    count += 1;
+    if (t.type === 'income') { income += t.amount; continue; }
+    spent += t.amount;
+    if (t.date === today && !t.recurringId) todayOut += t.amount;
+  }
+  for (const f of flows) {
+    if (f.date > today || !after(f.date, f.createdAt)) continue;
+    count += 1;
+    invested += f.type === 'out' ? -f.amount : f.amount;
+  }
+  const base = settings.currentSavings || 0;
+  return {
+    base, at, days: Math.max(0, daysBetween(at, today)), income, spent, invested, count, todayOut,
+    balance: base + income - spent - invested,
+  };
+}
+
+const RECONCILE_MATCH = 100; // within RM 1 the records and the bank agree
+
+/**
+ * 对账: the entry that closes the gap between the money really there (`real`) and what the records say
+ * (`recorded`, cashOnHand().balance) — spending nobody wrote down (less money) or income that wasn't (more).
+ * Dated the day before, so it counts as past spending in the budget instead of eating today's allowance (and stays
+ * out of the new figure, which already reflects it). Null when they agree within RM 1.
+ */
+export function reconcileGap(real, recorded, today) {
+  const diff = real - recorded;
+  if (Math.abs(diff) < RECONCILE_MATCH) return null;
+  const date = addDays(today, -1);
+  return diff < 0
+    ? { type: 'expense', amount: -diff, categoryId: 'other', date, note: '对账差额：没记到的支出' }
+    : { type: 'income', amount: diff, categoryId: 'otherincome', date, note: '对账差额：没记到的收入' };
+}
+
+/**
+ * The fixed-item expenses from `from` to `to`, each on the day it lands: the entry a fixed item made (also one since
+ * paused or deleted); for a month the app won't log (本月也记一笔 off, or skipped while paused) the entry typed in by
+ * hand for it, if there is one; otherwise the item's day. Business ones only when they count against the budget.
+ */
+function fixedCharges({ txs, recurring, from, to, countsBusiness }) {
+  const out = [];
+  const logged = new Set();
+  for (const t of txs) {
+    if (t.type !== 'expense' || !t.recurringId) continue;
+    logged.add(`${t.recurringId}|${monthOf(t.date)}`);
+    if (t.date >= from && t.date <= to && (countsBusiness || !isBusiness(t))) out.push({ date: t.date, amount: t.amount });
+  }
+  const byHand = new Set(); // a hand-typed entry stands for one fixed item only
+  for (const r of recurring) {
+    if (!r.active || r.type !== 'expense' || (!countsBusiness && isBusinessItem(r))) continue;
+    for (const m of monthRange(monthOf(from), monthOf(to))) {
+      if ((r.startMonth && r.startMonth > m) || logged.has(`${r.id}|${m}`)) continue;
+      let charge = { date: dateInMonth(m, r.day), amount: r.amount };
+      if (r.lastMonth && r.lastMonth >= m) {
+        const hand = findManualMatch(txs.filter((t) => !byHand.has(t.id)), r, `${m}-01`);
+        if (!hand) continue;
+        byHand.add(hand.id);
+        charge = { date: hand.date, amount: hand.amount };
+      }
+      if (charge.date >= from && charge.date <= to) out.push(charge);
+    }
+  }
+  return out;
+}
+
+/**
+ * What a period may spend in total: income basis − savings target; income basis = expected income, or the period's
+ * actual income when none is set. A period tracking started in the middle of is prorated to the days that count:
+ * the day-to-day part by days, fixed items by the day they land (due after the start: in full; paid before it: not
+ * at all), so rent never makes the first days look overspent or roomier than a whole month would.
+ * While the next income is late the cycle is prorated over its planned length: the extra days stretch the same
+ * money, they add none. `fixedTracked`: the fixed items inside the tracked part.
+ */
+export function periodBudget({ txs, settings, period: p, recurring = [] }) {
   const summary = periodSummary(txs, p);
   const expected = settings.expectedIncome || 0;
   const incomeBasis = expected > 0 ? expected : summary.income;
@@ -187,8 +319,22 @@ export function periodBudget({ txs, settings, period: p }) {
   let budget = Math.max(0, incomeBasis - target);
   const start = trackingStart(settings, txs);
   const prorated = !!start && start > p.start && start <= p.end && expected > 0;
-  if (prorated) budget = Math.round((budget * (daysBetween(start, p.end) + 1)) / p.days);
-  return { budget, hasPlan: incomeBasis > 0, incomeBasis, usesExpected: expected > 0, target, start, prorated, summary };
+  let fixedTracked = 0;
+  if (prorated) {
+    const cfg = p.open ? payCycle(settings) : null;
+    const planned = cfg ? expectedEnd(p.start, cfg) : p.end;
+    // Set up only after the planned end (income already late): nothing to anchor to but the stretched end.
+    const end = planned < p.end && start <= planned ? planned : p.end;
+    const countsBusiness = settings.budgetIncludesBusiness === true;
+    let fixed = 0;
+    for (const c of fixedCharges({ txs, recurring, from: p.start, to: end, countsBusiness })) {
+      fixed += c.amount;
+      if (c.date >= start) fixedTracked += c.amount;
+    }
+    const dayToDay = Math.round((Math.max(0, budget - fixed) * (daysBetween(start, end) + 1)) / (daysBetween(p.start, end) + 1));
+    budget = Math.min(budget, dayToDay + fixedTracked);
+  }
+  return { budget, hasPlan: incomeBasis > 0, incomeBasis, usesExpected: expected > 0, target, start, prorated, fixedTracked, summary };
 }
 
 /**
@@ -201,14 +347,14 @@ export function periodBudget({ txs, settings, period: p }) {
  * is on; otherwise it is tracked (spentBusiness) but kept outside the allowance. Either way it stays in the
  * income / balance figures — that is money that really left.
  */
-export function dailyBudget({ txs, settings, recurring = [], today }) {
+export function dailyBudget({ txs, settings, recurring = [], today, cash = null }) {
   const p = periodFor(today, { txs, settings, today });
   const dim = p.days;
   const day = daysBetween(p.start, today) + 1;
-  const daysLeft = daysBetween(today, p.end) + 1;
+  const daysLeft = Math.max(1, daysBetween(today, p.end) + 1); // today is always inside its period; never divide by 0
   const countsBusiness = settings.budgetIncludesBusiness === true;
   // Started tracking in the middle of the period: only the remaining part of the budget applies.
-  const { budget, hasPlan, incomeBasis, usesExpected, target, start, prorated, summary: s } = periodBudget({ txs, settings, period: p });
+  const { budget, hasPlan, incomeBasis, usesExpected, target, start, prorated, fixedTracked, summary: s } = periodBudget({ txs, settings, period: p, recurring });
 
   let spentToday = 0;
   let fixedToday = 0;
@@ -231,19 +377,39 @@ export function dailyBudget({ txs, settings, recurring = [], today }) {
   const spentTodayFree = spentToday - fixedToday;
   const reserved = upcomingRecurring(countsBusiness ? recurring : recurring.filter((r) => !isBusinessItem(r)), today, p.end);
   const remainingAtStart = budget - spentBefore - fixedToday - reserved;
-  const allowanceToday = Math.floor(remainingAtStart / daysLeft);
+  let allowanceToday = Math.floor(remainingAtStart / daysLeft);
+  let leftMonth = budget - spentMonth - reserved;
+  // The budget can only be spent if the money is there. With the money on hand known (对账, see cashOnHand), what
+  // it can still cover — after every fixed item still due this period, business ones too: it's the same account —
+  // spread over the days left caps the allowance. Then today's spending is counted the same way (all of it).
+  let limit = 'budget';
+  let shownToday = spentTodayFree;
+  let cashLeft = null;
+  let reservedAll = reserved;
+  if (cash && hasPlan) {
+    reservedAll = upcomingRecurring(recurring, today, p.end);
+    cashLeft = cash.balance - reservedAll;
+    const cashAllowance = Math.floor((cashLeft + cash.todayOut) / daysLeft);
+    if (cashAllowance < allowanceToday) {
+      limit = 'cash';
+      allowanceToday = cashAllowance;
+      shownToday = cash.todayOut;
+      leftMonth = Math.min(leftMonth, cashLeft);
+    }
+  }
   // Once the period is overspent there is no allowance left: today's spending is simply over.
-  const leftToday = Math.max(0, allowanceToday) - spentTodayFree;
-  const leftMonth = budget - spentMonth - reserved;
+  const leftToday = Math.max(0, allowanceToday) - shownToday;
   const tracked = prorated ? daysBetween(start, p.end) + 1 : dim;
 
   return {
-    ym: p.key, period: p, hasPlan, incomeBasis, usesExpected, budget, target, prorated, startDate: start,
+    ym: p.key, period: p, hasPlan, incomeBasis, usesExpected, budget, target, prorated, startDate: start, fixedTracked,
     countsBusiness, spentToday, spentTodayFree, fixedToday, spentMonth, spentBusiness,
     spentAll: spentMonth + (countsBusiness ? 0 : spentBusiness),
     reserved, daysLeft, dim, day,
+    cash, limit, cashLeft, reservedAll, shownToday,
     allowanceToday, leftToday, leftMonth,
-    usedRatio: budget > 0 ? (spentMonth + reserved) / budget : 0,
+    // A RM 0 budget (savings target = income) is used up by the first ringgit.
+    usedRatio: budget > 0 ? (spentMonth + reserved) / budget : spentMonth + reserved > 0 ? Infinity : 0,
     monthProgress: (tracked - daysLeft + 1) / tracked,
     incomeMonth: s.income,
     savedMonth: s.net,
@@ -284,6 +450,7 @@ const perMonthFactor = (p) => (p.kind === 'cycle' ? 30 / p.days : 1);
  * Category comparison between a period and the one before it.
  * While `p` is still running (today inside it), both are compared over the same first N days — rent and
  * other fixed costs land early, so a whole previous period against a few days of this one is meaningless.
+ * N is at most the previous period's length: nothing is scaled up (that would count its rent more than once).
  * Finished pay cycles are compared per 30 days. The previous period must be fully tracked.
  */
 export function comparePeriods(txs, p, prev, categories, since = '', today = '') {
@@ -295,12 +462,11 @@ export function comparePeriods(txs, p, prev, categories, since = '', today = '')
   let fb = perMonthFactor(prev);
   let sameDays = 0;
   if (running) {
-    sameDays = daysBetween(p.start, today) + 1;
-    pa = { ...p, end: today };
-    const bEnd = addDays(prev.start, sameDays - 1);
-    pb = { ...prev, end: bEnd < prev.end ? bEnd : prev.end };
+    sameDays = Math.min(daysBetween(p.start, today) + 1, daysBetween(prev.start, prev.end) + 1);
+    pa = { ...p, end: addDays(p.start, sameDays - 1) };
+    pb = { ...prev, end: addDays(prev.start, sameDays - 1) };
     fa = 1;
-    fb = sameDays / (daysBetween(pb.start, pb.end) + 1);
+    fb = 1;
   }
   const cur = periodSummary(txs, pa, categories);
   const old = periodSummary(txs, pb, categories);
@@ -350,7 +516,9 @@ export function categoryStatus(amountCents, range, slack = 1) {
  * Compare a period's personal spending with the KL 24yo founder reference (a monthly figure).
  * The running period is a month at today's fixed items + recent day-to-day pace (spendingModel), per category
  * too. A finished period only partly covered (tracking began inside it) is projected to the whole period;
- * finished pay cycles are scaled to 30 days so they compare fairly with the monthly reference.
+ * finished pay cycles are scaled to 30 days so they compare fairly with the monthly reference (`per30` on each row:
+ * the figure its status was judged on). A period that ended before tracking started (`untracked`) holds only stray
+ * entries: nothing in it is judged.
  */
 export function evaluatePeriod({ txs, period: p, categories, profile, today, recurring = [], startDate = '' }) {
   const prof = normalizeProfile(profile);
@@ -360,6 +528,7 @@ export function evaluatePeriod({ txs, period: p, categories, profile, today, rec
   const personal = personalByCategory(txs, p);
   const f = perMonthFactor(p);
   const isCurrent = !!today && today >= p.start && today <= p.end;
+  const untracked = !!startDate && p.end < startDate;
   const from = startDate && startDate > p.start && startDate <= p.end ? startDate : p.start;
   const to = isCurrent ? today : p.end;
   const elapsed = Math.max(1, daysBetween(from, to) + 1) / p.days;
@@ -369,6 +538,15 @@ export function evaluatePeriod({ txs, period: p, categories, profile, today, rec
   // for every category alike; a finished period is judged by what it actually held.
   const model = isCurrent ? spendingModel({ txs, recurring, today, since: startDate }) : null;
   const monthlyOf = (id) => (model ? Math.round(model.byCategory.get(id) || 0) : null);
+
+  // A finished period tracking began inside of: entries dated before that day (catch-up entries) count as they are,
+  // like fixed costs — only what was spent on the tracked days is extrapolated.
+  const early = new Map();
+  if (!model && isPartial) {
+    for (const t of txInPeriod(txs, p)) {
+      if (t.type === 'expense' && !isBusiness(t) && t.date < from) early.set(t.categoryId, (early.get(t.categoryId) || 0) + t.amount);
+    }
+  }
 
   const cats = categoryMap(categories);
   const rows = [];
@@ -382,13 +560,16 @@ export function evaluatePeriod({ txs, period: p, categories, profile, today, rec
     const scaled = Math.round(amount * f);
     const monthly = monthlyOf(c.id);
     rows.push({
-      categoryId: c.id, amount, range, monthly,
-      status: model ? categoryStatus(monthly, range, ESTIMATE_SLACK) : isPartial ? partialStatus(scaled, range, elapsed, c.id) : categoryStatus(scaled, range),
+      categoryId: c.id, amount, range, monthly, per30: !model && f !== 1 ? scaled : null,
+      status: untracked ? 'none'
+        : model ? categoryStatus(monthly, range, ESTIMATE_SLACK)
+          : isPartial ? partialStatus(scaled, range, elapsed, c.id, Math.round((early.get(c.id) || 0) * f))
+            : categoryStatus(scaled, range),
     });
   }
   for (const [id, amount] of personal) {
     if (seen.has(id)) continue;
-    rows.push({ categoryId: id, amount, range: null, status: 'none', monthly: monthlyOf(id) });
+    rows.push({ categoryId: id, amount, range: null, status: 'none', monthly: monthlyOf(id), per30: !model && f !== 1 ? Math.round(amount * f) : null });
   }
   rows.sort((a, b) => b.amount - a.amount);
 
@@ -399,14 +580,14 @@ export function evaluatePeriod({ txs, period: p, categories, profile, today, rec
     perMonth = model.personalMonthly;
     projected = perMonth;
   } else {
-    // A finished period tracked only in part (tracking began inside it): fixed costs as they are,
-    // day-to-day spending extrapolated to the whole period.
+    // A finished period tracked only in part (tracking began inside it): fixed costs and entries from before tracking
+    // began as they are, day-to-day spending of the tracked days extrapolated to the whole period.
     if (isPartial) {
-      let fixed = 0;
+      let asIs = 0;
       for (const t of txInPeriod(txs, p)) {
-        if (t.type === 'expense' && !isBusiness(t) && (t.recurringId || t.categoryId === 'housing')) fixed += t.amount;
+        if (t.type === 'expense' && !isBusiness(t) && (t.recurringId || t.categoryId === 'housing' || t.date < from)) asIs += t.amount;
       }
-      projected = Math.round(fixed + (personalTotal - fixed) / elapsed);
+      projected = Math.round(asIs + (personalTotal - asIs) / elapsed);
     }
     perMonth = Math.round(projected * f);
   }
@@ -414,7 +595,7 @@ export function evaluatePeriod({ txs, period: p, categories, profile, today, rec
 
   return {
     ym: p.key, period: p, profile: prof, tiers, tier, tierLabel: TIER_LABELS[tier],
-    personalTotal, projected, perMonth, normalized: !model && f !== 1, isCurrent, isPartial, elapsed, model,
+    personalTotal, projected, perMonth, normalized: !model && f !== 1, isCurrent, isPartial, untracked, elapsed, model,
     rows, summary, cats,
   };
 }
@@ -424,15 +605,14 @@ export function evaluateMonth({ ym, ...rest }) {
 }
 
 // While a month is in progress, only flag a category as high if it already exceeds the full-month range,
-// or is on pace to exceed it by a wide margin (fixed costs like rent land early, so we stay gentle).
-const LUMP_SUM_CATEGORIES = new Set(['housing', 'utilities', 'subscriptions', 'family', 'health', 'learning']);
-
-function partialStatus(amount, range, elapsed, categoryId) {
+// or is on pace to exceed it by a wide margin (fixed costs like rent land early, so we stay gentle; bills in
+// LUMP_SUM_CATEGORIES are never paced). `early`: the part spent before tracking began, which is not a pace either.
+function partialStatus(amount, range, elapsed, categoryId, early = 0) {
   if (!range) return 'none';
   const full = categoryStatus(amount, range);
   if (full === 'high' || full === 'over') return full;
   if (elapsed >= 0.33 && !LUMP_SUM_CATEGORIES.has(categoryId)) {
-    const pace = amount / elapsed;
+    const pace = early + (amount - early) / elapsed;
     if (pace / RM > range[1] * 1.3 && pace / RM - range[1] > 100) return 'pace';
   }
   return 'ok';
@@ -443,12 +623,13 @@ function partialStatus(amount, range, elapsed, categoryId) {
  * every fixed item (personal and business, they keep being charged) + day-to-day spending at its recent
  * pace. One-off business spending isn't a monthly cost and is only reported. See spendingModel.
  */
-export function runway({ txs, currentSavings, today, since = '', recurring = [] }) {
-  if (!currentSavings || currentSavings <= 0) return null;
+export function runway({ txs, currentSavings, today, since = '', recurring = [], known = false }) {
+  // `known`: the figure comes from a check of the money on hand (cashOnHand), so even 0 or less is an answer.
+  if (!known && (!currentSavings || currentSavings <= 0)) return null;
   const m = spendingModel({ txs, recurring, today, since });
   const base = { target: RUNWAY_TARGET_MONTHS, fixed: m.fixedPersonal + m.fixedBusiness, variable: m.variableMonthly, days: m.days, oneOffBusiness: m.oneOffBusiness };
   if (!m.enough || m.totalMonthly <= 0) return { ...base, months: null, avg: 0, basis: '资料还不够' };
-  return { ...base, months: currentSavings / m.totalMonthly, avg: m.totalMonthly, basis: `固定项目 + 近 ${m.days} 天的日常开销` };
+  return { ...base, months: Math.max(0, currentSavings) / m.totalMonthly, avg: m.totalMonthly, basis: `固定项目 + 近 ${m.days} 天的日常开销` };
 }
 
 /** Most repeated (category, amount, note) combos from the last 60 days → one-tap quick add. */
@@ -485,8 +666,18 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
   const s = ev.summary;
   const cats = ev.cats;
   const name = (id) => cats.get(id)?.name || '未分类';
+  const has = (v) => v !== null && v !== undefined;
+  // A category's figure as judged: a month's estimate while the period runs, per 30 days for a finished pay cycle.
+  const figure = (r) => (has(r.monthly) ? r.monthly : has(r.per30) ? r.per30 : r.amount);
+  const figureText = (r) => `${formatMoney(figure(r), { round: true })}${has(r.monthly) ? '／月' : has(r.per30) ? '／30 天' : ''}`;
   const out = [];
 
+  if (ev.untracked) {
+    return [{
+      tone: 'info', icon: 'calendar', title: `${cycle ? '这一期' : '这个月'}在开始记账之前`,
+      body: `从 ${dayLabel(since, today)}才开始记账，这段时间只有零星几笔记录（例如固定项目自动记上的），所以这里不评估生活费和储蓄率。`,
+    }];
+  }
   if (s.count === 0) {
     return [{ tone: 'info', icon: 'sparkles', title: cycle ? '这一期还没有记录' : '这个月还没有记录', body: `每天花几秒记一笔，${cycle ? '这一期结束时' : '月底'}这里就会告诉你钱都去了哪里。` }];
   }
@@ -496,6 +687,8 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
   const rangeText = `RM ${lean.toLocaleString('en-MY')} – ${okMax.toLocaleString('en-MY')}`;
   const per30 = ev.normalized ? '（按 30 天换算）' : '';
   const flagged = ev.rows.filter((r) => r.status === 'high' || r.status === 'over' || r.status === 'pace');
+  // Categories without a reference range (added by hand) are never flagged — which doesn't make them "in range".
+  const unranged = ev.rows.filter((r) => !r.range && figure(r) > 0).sort((a, b) => figure(b) - figure(a));
   const amountText = ev.model
     ? `按固定项目加上近 ${ev.model.days} 天的日常开销，每月个人生活费约 ${formatMoney(ev.perMonth, { round: true })}${ev.model.steady ? '' : `（才记了 ${ev.model.days} 天，仅供参考）`}`
     : ev.isPartial
@@ -506,25 +699,33 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
     ok: { tone: 'good', title: '生活费在合理范围', extra: '符合吉隆坡 24 岁单身创业者的合理水平。' },
     high: { tone: 'warn', title: '生活费偏高', extra: flagged.length
       ? '超过合理上限，建议先从下面标黄的类别开始收一收。'
-      : '每个类别都还在参考区间内，是加起来超过了上限，可以先检视金额最大的固定开销（房租、保险、订阅）。' },
+      : unranged.length
+        ? `有参考区间的类别都还在区间内，超出的部分主要来自没有参考区间的${name(unranged[0].categoryId)}（${figureText(unranged[0])}），先看看这一项能不能减少。`
+        : '每个类别都还在参考区间内，是加起来超过了上限，可以先检视金额最大的固定开销（房租、保险、订阅）。' },
     over: { tone: 'bad', title: '生活费明显过高', extra: `已超过 RM ${highMax.toLocaleString('en-MY')}，对创业期来说压力很大，建议马上检视。` },
   }[ev.tier];
   out.push({ tone: verdict.tone, icon: 'target', title: verdict.title, body: `${amountText}。吉隆坡同龄创业者合理区间 ${rangeText}。${verdict.extra}` });
 
   // 2. Savings rate vs target
-  if (s.income > 0) {
-    // While the period runs, judge the savings by where it is heading, not by the first few days:
-    // still-to-come fixed items and day-to-day spending at its recent pace until the period ends.
+  // While the period runs, judge the savings by where it is heading, not by the first few days: still-to-come fixed
+  // items (expenses — rent paid by hand too — and income) and day-to-day spending at its recent pace until the period
+  // ends. Under pay cycles a 薪水 / 创业收入 item due inside the pay window starts the next cycle: not this one's income.
+  const cfg = cycle ? payCycle(settings) : null;
+  const startsCycle = (r) => !!cfg && CYCLE_INCOME_CATEGORIES.includes(r.categoryId) && r.day >= cfg.from && r.day <= cfg.to;
+  const incomeAhead = ev.model ? upcomingRecurring(recurring.filter((r) => !startsCycle(r)), today, p.end, 'income') : 0;
+  const income = s.income + incomeAhead;
+  if (income > 0) {
     let net = s.net;
     let body;
     if (ev.model) {
-      const ahead = upcomingRecurring(recurring, today, p.end) + Math.round(ev.model.variableDaily * daysBetween(today, p.end));
-      net = s.net - ahead;
-      body = `${THIS}收入 ${formatMoney(s.income, { round: true })}，目前已花 ${formatMoney(s.expense, { round: true })}。按目前速度，到 ${dayLabel(p.end, today)}预计结余 ${formatMoney(net, { round: true })}，储蓄率约 ${formatPercent(net / s.income)}。`;
+      const fixedAhead = upcomingRecurring(ev.model.handRent ? [...recurring, ev.model.handRent] : recurring, today, p.end);
+      net = s.net + incomeAhead - fixedAhead - Math.round(ev.model.variableDaily * daysBetween(today, p.end));
+      body = `${THIS}收入 ${formatMoney(s.income, { round: true })}${incomeAhead ? `，另有固定收入 ${formatMoney(incomeAhead, { round: true })} 还没到` : ''}，目前已花 ${formatMoney(s.expense, { round: true })}。按目前速度，到 ${dayLabel(p.end, today)}预计结余 ${formatMoney(net, { round: true })}，储蓄率约 ${formatPercent(net / income)}。`;
     } else {
-      body = `收入 ${formatMoney(s.income, { round: true })}，结余 ${formatMoney(net, { round: true })}，储蓄率 ${formatPercent(net / s.income)}。`;
+      // 结余 as the 分析 stat grid shows it: 收入 − 支出 in whole ringgit.
+      body = `收入 ${formatMoney(s.income, { round: true })}，结余 ${formatMoney(roundedRest(s.income, s.expense), { round: true })}，储蓄率 ${formatPercent(net / s.income)}。`;
     }
-    const rate = net / s.income;
+    const rate = net / income;
     const target = settings.savingsTarget || 0;
     let tone = 'good', title = ev.model ? '预计储蓄率健康' : '储蓄率健康';
     if (rate < 0) { tone = 'bad'; title = ev.model ? `${THIS}预计入不敷出` : `${THIS}入不敷出`; }
@@ -545,41 +746,59 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
   // 3. Categories above range
   for (const r of flagged.slice(0, 3)) {
     const [lo, hi] = r.range;
-    const monthly = r.monthly !== null && r.monthly !== undefined; // running period: a month's estimate, like the verdict above
+    // Running period: a month's estimate, like the verdict above; finished pay cycle: per 30 days, like its badge.
+    const basis = has(r.monthly) ? '（按固定项目加上近期开销推算）' : has(r.per30) ? '（按 30 天换算）' : '';
     const over = r.status === 'pace'
       ? `照这个速度，${cycle ? '这一期结束时' : '月底'}会超过参考上限 RM ${hi}`
-      : `超过参考区间 RM ${lo} – ${hi}${monthly ? '（按固定项目加上近期开销推算）' : ''}`;
+      : `超过参考区间 RM ${lo} – ${hi}${basis}`;
     out.push({
       tone: r.status === 'over' ? 'bad' : 'warn', icon: cats.get(r.categoryId)?.icon || 'other',
-      title: `${name(r.categoryId)} ${formatMoney(monthly ? r.monthly : r.amount, { round: true })}${monthly ? '／月' : ''}`,
+      title: `${name(r.categoryId)} ${figureText(r)}`,
       body: `${over}。${categoryTip(r.categoryId)}`,
     });
   }
 
-  // 4. Month-over-month change
+  // 4. Month-over-month change. Signs follow the rounded figures shown: under RM 0.50 is no change.
   if (cmp.comparable && cmp.previous.expense > 0) {
-    const up = cmp.delta > 0;
+    const flat = Math.round(Math.abs(cmp.delta) / RM) === 0;
+    const up = !flat && cmp.delta > 0;
     const biggest = cmp.rows[0];
+    const diff = `${up ? '多' : '少'} ${formatMoney(Math.abs(cmp.delta), { round: true })}`;
     let body = cmp.sameDays
-      ? `${THIS}前 ${cmp.sameDays} 天的总支出比${LAST}同期${up ? '多' : '少'} ${formatMoney(Math.abs(cmp.delta), { round: true })}`
-      : `总支出比${LAST}${up ? '多' : '少'} ${formatMoney(Math.abs(cmp.delta), { round: true })}${cmp.normalized ? '（按 30 天换算）' : ''}`;
-    if (cmp.ratio !== null) body += `（${up ? '+' : '−'}${formatPercent(Math.abs(cmp.ratio))}）`;
+      ? `${THIS}前 ${cmp.sameDays} 天的总支出${flat ? `和${LAST}同期持平` : `比${LAST}同期${diff}`}`
+      : `总支出${flat ? `和${LAST}持平` : `比${LAST}${diff}`}${cmp.normalized ? '（按 30 天换算）' : ''}`;
+    if (cmp.ratio !== null && !flat) body += `（${formatPercent(cmp.ratio, 0, { sign: true })}）`;
     if (biggest && Math.abs(biggest.delta) >= 50 * RM) {
       body += `，变化最大的是${name(biggest.categoryId)}（${biggest.delta > 0 ? '+' : '−'}${formatMoney(Math.abs(biggest.delta), { round: true })}）`;
     }
     body += ev.isCurrent ? `。${THIS}还没结束，仅供参考。` : '。';
-    out.push({ tone: up && !ev.isCurrent && cmp.ratio > 0.15 ? 'warn' : 'info', icon: up ? 'trendUp' : 'trendDown', title: cycle ? '与上一期相比' : '与上月相比', body });
+    out.push({
+      tone: up && !ev.isCurrent && cmp.ratio > 0.15 ? 'warn' : 'info', icon: flat ? 'check' : up ? 'trendUp' : 'trendDown',
+      title: cycle ? '与上一期相比' : '与上月相比', body,
+    });
   }
 
-  // 5. Needs vs wants balance
+  // 5. Needs vs wants balance — while the period runs, on the same monthly estimate as the verdict above
   const personal = s.personal;
-  if (personal > 0) {
-    const wants = s.byGroup.want / personal;
-    const needs = s.byGroup.need / personal;
+  const shares = { need: s.byGroup.need, want: s.byGroup.want };
+  let base = personal;
+  if (ev.model) {
+    shares.need = 0;
+    shares.want = 0;
+    for (const [id, v] of ev.model.byCategory) {
+      const g = cats.get(id)?.group;
+      if (g === 'need' || g === 'want') shares[g] += v;
+    }
+    base = ev.model.personalMonthly;
+  }
+  if (base > 0) {
+    const wants = shares.want / base;
+    const needs = shares.need / base;
+    const est = ev.model ? '按每月估算，' : '';
     if (wants > WANTS_SHARE_MAX + 0.1) {
-      out.push({ tone: 'warn', icon: 'shopping', title: '享受型开销占比偏高', body: `购物、娱乐、订阅占个人开销 ${formatPercent(wants)}，建议控制在 ${formatPercent(WANTS_SHARE_MAX)} 以内。` });
+      out.push({ tone: 'warn', icon: 'shopping', title: '享受型开销占比偏高', body: `${est}购物、娱乐、订阅${ev.model ? '约' : ''}占个人开销 ${formatPercent(wants)}，建议控制在 ${formatPercent(WANTS_SHARE_MAX)} 以内。` });
     } else if (needs > 0 && needs <= NEEDS_SHARE_MAX && wants <= WANTS_SHARE_MAX) {
-      out.push({ tone: 'good', icon: 'check', title: '开销结构平衡', body: `必要开销 ${formatPercent(needs)}，享受型开销 ${formatPercent(wants)}，比例健康。` });
+      out.push({ tone: 'good', icon: 'check', title: '开销结构平衡', body: `${est}必要开销 ${formatPercent(needs)}，享受型开销 ${formatPercent(wants)}，比例健康。` });
     }
   }
 

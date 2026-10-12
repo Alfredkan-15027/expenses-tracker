@@ -69,6 +69,7 @@ function cleanRecurring(r) {
     active: r.active !== false,
     startMonth: isValidMonth(r.startMonth) ? r.startMonth : null,
     lastMonth: isValidMonth(r.lastMonth) ? r.lastMonth : null,
+    daySince: isValidISODate(r.daySince) ? r.daySince : null, // the day was changed on this date (data check)
   };
 }
 
@@ -132,6 +133,15 @@ export function parseBackup(text) {
   if (!Number.isInteger(obj.version) || obj.version > BACKUP_VERSION) {
     return { ok: false, error: '备份文件来自更新的版本，请先更新 App。' };
   }
+  // Never throw: the restore flows only show a message for { ok: false } — an exception would end them silently.
+  try {
+    return cleanBackup(obj);
+  } catch {
+    return { ok: false, error: '备份文件的内容有问题，无法还原。' };
+  }
+}
+
+function cleanBackup(obj) {
   const tx = cleanList(obj.data.transactions, cleanTransaction);
   const cats = cleanList(obj.data.categories, cleanCategory);
   const rec = cleanList(obj.data.recurring, cleanRecurring);

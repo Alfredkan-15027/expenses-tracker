@@ -67,10 +67,14 @@ const TIER_SHIFT = {
   transport: { public: 0, motorcycle: 0, car: 800 },
 };
 
-export function normalizeProfile(profile = {}) {
+// Own keys only: "constructor" / "toString" from an imported file must not pass as an option.
+const isOption = (table, v) => typeof v === 'string' && Object.prototype.hasOwnProperty.call(table, v);
+
+export function normalizeProfile(profile) {
+  const p = profile && typeof profile === 'object' ? profile : {}; // null in a hand-edited backup
   return {
-    housing: HOUSING_RANGES[profile.housing] ? profile.housing : DEFAULT_PROFILE.housing,
-    transport: TRANSPORT_RANGES[profile.transport] ? profile.transport : DEFAULT_PROFILE.transport,
+    housing: isOption(HOUSING_RANGES, p.housing) ? p.housing : DEFAULT_PROFILE.housing,
+    transport: isOption(TRANSPORT_RANGES, p.transport) ? p.transport : DEFAULT_PROFILE.transport,
   };
 }
 

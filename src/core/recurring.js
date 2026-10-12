@@ -55,13 +55,34 @@ export function newRecurring({ id, type, amount, categoryId, note, day, business
   };
 }
 
-/** A transaction entered by hand this month that looks like the same fixed item (same kind, category, ~amount). */
-export function findManualMatch(transactions, { type, categoryId, amount }, today) {
-  if (!amount) return null;
+/** The brand-like first word of a note ("Claude Pro 订阅" → "claude"), or '' when it has no Latin word. */
+export const firstWord = (note) => (String(note || '').toLowerCase().match(/[a-z][a-z0-9]{2,}/) || [''])[0];
+
+/** Within max(RM 1, 5%) of a fixed item's amount. */
+export const nearAmount = (a, amount) => Math.abs(a - amount) <= Math.max(100, Math.round(amount * 0.05));
+
+/**
+ * Could entry `t` be this fixed item's charge: same kind, category and about the amount, and not a bill whose name
+ * says otherwise ("Maxis 手机" is not "Unifi 宽带" at a similar price). A note with no Latin word ("九月房租") can't
+ * tell, so it still matches.
+ */
+export function sameBill(t, { type, categoryId, amount, note }) {
+  if (t.type !== type || t.categoryId !== categoryId || !nearAmount(t.amount, amount)) return false;
+  const a = firstWord(t.note);
+  const b = firstWord(note);
+  return !a || !b || a === b;
+}
+
+/**
+ * An entry this month that looks like the same fixed item: typed in by hand, or (when `recurring` is passed) logged
+ * by a fixed item that has since been deleted — its entries stay, so adding the item back must not log them again.
+ */
+export function findManualMatch(transactions, item, today, recurring = null) {
+  if (!item.amount) return null;
   const cur = monthOf(today);
-  const tolerance = Math.max(100, Math.round(amount * 0.05));
-  return transactions.find((t) => !t.recurringId && t.type === type && t.categoryId === categoryId
-    && monthOf(t.date) === cur && Math.abs(t.amount - amount) <= tolerance) || null;
+  const live = recurring ? new Set(recurring.map((r) => r.id)) : null;
+  return transactions.find((t) => (!t.recurringId || (live && !live.has(t.recurringId)))
+    && monthOf(t.date) === cur && sameBill(t, item)) || null;
 }
 
 /**
@@ -76,11 +97,16 @@ export function resumeRecurring(r, today) {
 
 /**
  * A hand-typed entry shows what the fixed item costs now (plan upgrade, price rise): take its amount, name and
- * day, and don't log that entry's month again.
+ * day, and don't log that entry's month again. A date after `today` (likely a typo) can't mark a month that hasn't
+ * come. `daySince`: the day was set from this entry — the data check compares it with charges from then on only.
  */
-export function repriceRecurring(r, { amount, note, date }) {
-  const m = monthOf(date);
-  return { ...r, amount, note: note || r.note, day: dayOf(date), lastMonth: !r.lastMonth || r.lastMonth < m ? m : r.lastMonth };
+export function repriceRecurring(r, { amount, note, date }, today = date) {
+  const since = date < today ? date : today;
+  const m = monthOf(since);
+  return {
+    ...r, amount, note: note || r.note, day: dayOf(date), daySince: since,
+    lastMonth: !r.lastMonth || r.lastMonth < m ? m : r.lastMonth,
+  };
 }
 
 export function nextDueDate(r, today) {
@@ -88,5 +114,7 @@ export function nextDueDate(r, today) {
   const thisMonth = dateInMonth(cur, r.day);
   const doneThisMonth = r.lastMonth && r.lastMonth >= cur;
   if (!doneThisMonth && thisMonth >= today) return thisMonth;
-  return dateInMonth(addMonths(cur, 1), r.day);
+  // Marked done past this month: the next charge logged is the month after that one.
+  const next = r.lastMonth && r.lastMonth > cur ? r.lastMonth : cur;
+  return dateInMonth(addMonths(next, 1), r.day);
 }

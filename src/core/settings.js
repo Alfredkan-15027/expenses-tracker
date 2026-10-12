@@ -1,13 +1,15 @@
 import { DEFAULT_PROFILE, normalizeProfile } from './benchmarks.js';
 import { MAX_CENTS } from './money.js';
-import { isValidISODate } from './dates.js';
+import { isValidISODate, toISODate } from './dates.js';
+import { daysBetween } from './periods.js';
 import { DEFAULT_INVEST, sanitizeInvest } from './invest.js';
 
 export const DEFAULT_SETTINGS = {
   expectedIncome: 0,   // cents / month — basis for the daily budget
   savingsTarget: 0,    // cents / month
-  currentSavings: 0,   // cents — used for the long-term goal and personal runway
-  currentSavingsAt: '', // ISO date it was last filled in (the figure does not follow new income / spending)
+  currentSavings: 0,   // cents — money on hand when last filled in (对账); carried forward by the records, see cashOnHand
+  currentSavingsAt: '', // ISO date it was last filled in
+  currentSavingsTs: 0,  // epoch ms it was last filled in — entries logged later that same day count after it
   goalName: '应急金',
   goalAmount: 0,       // cents — long-term savings goal
   profile: { ...DEFAULT_PROFILE },
@@ -42,6 +44,21 @@ export function backupDue(settings, now = Date.now()) {
   return now - last >= f.days * 86_400_000 - 2 * 3_600_000;
 }
 
+/**
+ * Calendar days since a backup made at `ts` (epoch ms), by the local date like dayLabel: last night 23:30 is
+ * 1 (昨天) this evening, not 0 elapsed 24-hour blocks. Null when there is none. (backupDue stays on elapsed time.)
+ */
+export function backupAgeDays(ts, now = Date.now()) {
+  if (!ts) return null;
+  return Math.max(0, daysBetween(toISODate(new Date(ts)), toISODate(new Date(now))));
+}
+
+/** "今天" / "昨天" / "3 天前" for a backup made at `ts`; "还没有备份过" when there is none. */
+export function backupAgeText(ts, now = Date.now()) {
+  const d = backupAgeDays(ts, now);
+  return d === null ? '还没有备份过' : d === 0 ? '今天' : d === 1 ? '昨天' : `${d} 天前`;
+}
+
 const dayNum = (v, d) => (Number.isInteger(v) && v >= 1 && v <= 31 ? v : d);
 
 function sanitizePayCycle(c) {
@@ -61,6 +78,7 @@ export function sanitizeSettings(raw = {}) {
     savingsTarget: cents(s.savingsTarget),
     currentSavings: cents(s.currentSavings),
     currentSavingsAt: isValidISODate(s.currentSavingsAt) ? s.currentSavingsAt : '',
+    currentSavingsTs: Number.isFinite(s.currentSavingsTs) && s.currentSavingsTs > 0 ? s.currentSavingsTs : 0,
     goalName: text(s.goalName, 20, DEFAULT_SETTINGS.goalName) || DEFAULT_SETTINGS.goalName,
     goalAmount: cents(s.goalAmount),
     profile: normalizeProfile(s.profile),

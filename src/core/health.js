@@ -1,19 +1,18 @@
 // Data check: finds records and settings that would make the analysis wrong (duplicates, missed or
 // double-counted fixed items, odd dates and amounts, missing plan numbers). Pure — runs on the phone only.
-import { dateInMonth, dayLabel, dayOf, monthOf, monthLabel } from './dates.js';
+import { addMonths, dateInMonth, dayLabel, dayOf, monthOf, monthLabel } from './dates.js';
 import { categoryMap } from './categories.js';
-import { trackingStart } from './analysis.js';
+import { isBusiness, isBusinessItem, trackingStart } from './analysis.js';
+import { daysBetween, payCycle } from './periods.js';
+import { firstWord, nearAmount as near, sameBill } from './recurring.js';
 import { formatMoney } from './money.js';
 
 const DAY_TOLERANCE = 3;            // a fixed item paid within ±2 days of its set day is fine
+const DOUBLE_DAYS = 15;             // one fixed item charged twice this close together in a month: logged twice
 const BIG_MULTIPLE = 5;             // an amount this many times the category's usual one is worth a look
 const BIG_MIN = 20_000;             // … but only from RM 200 up
 const HUGE = 2_000_000;             // any single entry of RM 20,000+ (a slipped extra 0?)
-
-const near = (a, b) => Math.abs(a - b) <= Math.max(100, Math.round(b * 0.05));
-
-/** The brand-like first word of a note ("Claude Pro 订阅" → "claude"), or '' when it has no Latin word. */
-const firstWord = (note) => (String(note || '').toLowerCase().match(/[a-z][a-z0-9]{2,}/) || [''])[0];
+const RECONCILE_DAYS = 30;          // money on hand last checked this long ago → suggest checking it again
 
 function median(list) {
   const s = [...list].sort((a, b) => a - b);
@@ -51,26 +50,70 @@ export function checkData({ transactions: txs, categories, recurring = [], setti
     });
   }
 
-  // 2. A fixed item logged automatically AND typed in by hand in the same month.
+  // 2. A fixed item logged automatically AND typed in by hand in the same month — or left behind by a fixed item
+  //    that was deleted (its entries stay) and then added again.
+  const items = new Map(recurring.map((r) => [r.id, r]));
+  const loose = txs.filter((t) => !t.recurringId || !items.has(t.recurringId)); // typed in, or its item is gone
+  const lastOf = new Map(); // deleted item → its newest entry
+  for (const t of loose) {
+    if (t.recurringId && !(lastOf.get(t.recurringId)?.date >= t.date)) lastOf.set(t.recurringId, t);
+  }
+  const claimed = new Set(); // entries already reported as the double of a fixed item's charge
   for (const t of txs.filter((x) => x.recurringId)) {
-    const m = manual.find((u) => u.type === t.type && u.categoryId === t.categoryId
-      && monthOf(u.date) === monthOf(t.date) && near(u.amount, t.amount));
+    // An entry within the tolerance of the item's day in the month before or after is that month's charge (rent for
+    // the 1st paid on 30 Sep), not this one's double.
+    const day = items.get(t.recurringId)?.day ?? dayOf(t.date);
+    const nextOrPrev = (d) => [-1, 1].some((k) => Math.abs(daysBetween(d, dateInMonth(addMonths(monthOf(t.date), k), day))) < DAY_TOLERANCE);
+    // A deleted item's entry doubles only the first charge of an item added back that month (its own last charge):
+    // items that ran side by side were separate bills.
+    const readded = (u) => lastOf.get(u.recurringId) === u && items.get(t.recurringId)?.startMonth === monthOf(t.date);
+    const m = loose.find((u) => monthOf(u.date) === monthOf(t.date) && sameBill(u, t) && !nextOrPrev(u.date)
+      && (!u.recurringId || readded(u)));
     if (!m) continue;
+    claimed.add(m.id);
     out.push({
       id: `fixdup:${t.id}:${m.id}`, level: 'warn', kind: 'fixed-double',
       title: `${t.note || catName(t.categoryId)} 可能记了两次`,
-      body: `${monthLabel(monthOf(t.date), false)}已由固定项目自动记了 ${formatMoney(t.amount)}，同月又有一笔手动记录 ${formatMoney(m.amount)}。`,
+      body: `${monthLabel(monthOf(t.date), false)}已由固定项目自动记了 ${formatMoney(t.amount)}，同月又有一笔${m.recurringId ? '已删除的固定项目留下的' : '手动'}记录 ${formatMoney(m.amount)}。`,
       txIds: [t.id, m.id], fix: { type: 'delete', txId: m.id },
     });
   }
+  // … or logged twice by the item itself (e.g. a charge logged while its editor was open, then saved over).
+  const byItem = new Map();
+  for (const t of txs) {
+    if (!t.recurringId) continue;
+    const k = `${t.recurringId}|${monthOf(t.date)}`;
+    if (!byItem.has(k)) byItem.set(k, []);
+    byItem.get(k).push(t);
+  }
+  for (const g of byItem.values()) {
+    g.sort((a, b) => a.date.localeCompare(b.date));
+    for (let i = 1; i < g.length; i += 1) {
+      const a = g[i - 1];
+      const b = g[i];
+      // Two charges a month apart can share a month (one posted a day late): only close ones are a double.
+      if (daysBetween(a.date, b.date) >= DOUBLE_DAYS || !near(b.amount, a.amount)) continue;
+      const extra = (b.createdAt || 0) >= (a.createdAt || 0) ? b : a;
+      out.push({
+        id: `fixdup:${a.id}:${b.id}`, level: 'warn', kind: 'fixed-double',
+        title: `${a.note || catName(a.categoryId)} 可能记了两次`,
+        body: `${monthLabel(monthOf(a.date), false)}这个固定项目自动记了两笔：${dayLabel(a.date, today)} ${formatMoney(a.amount)}、${dayLabel(b.date, today)} ${formatMoney(b.amount)}。如果实际只有一笔，删掉多出来的。`,
+        txIds: [a.id, b.id], fix: { type: 'delete', txId: extra.id },
+      });
+    }
+  }
 
-  // 3. Entries dated in the future.
+  // 3. Entries dated in the future. Those inside the running period already count in 今天 and the analysis;
+  // with pay cycles, a future-dated income starts no cycle before its day.
   const future = txs.filter((t) => t.date > today);
   if (future.length) {
+    const cycle = !!payCycle(settings);
     out.push({
       id: `future:${future.map((t) => t.id).sort().join(',')}`, level: 'warn', kind: 'future',
       title: `${future.length} 笔记录的日期在未来`,
-      body: '可能选错了日期。未来的记录会被算进那个月，现在不会出现在「今天」和本月分析里。',
+      body: cycle
+        ? '可能选错了日期。日期还在本期内的，现在就已算进「今天」和本期分析；更晚的要到那一期才算。未来日期的薪水／创业收入也要到那天才会开始新的一期。'
+        : '可能选错了日期。日期还在本月内的，现在就已算进「今天」和本月分析；更晚的要到那个月才算。',
       txIds: future.map((t) => t.id),
     });
   }
@@ -92,42 +135,42 @@ export function checkData({ transactions: txs, categories, recurring = [], setti
     const due = dateInMonth(cur, r.day);
     const own = txs.filter((t) => t.recurringId === r.id);
     const name = r.note || catName(r.categoryId);
-    if (due <= today && (!r.startMonth || r.startMonth <= cur)) {
-      const logged = own.some((t) => monthOf(t.date) === cur)
-        || manual.some((u) => u.type === r.type && u.categoryId === r.categoryId && monthOf(u.date) === cur && near(u.amount, r.amount));
-      if (!logged) {
-        out.push({
-          id: `missing:${r.id}:${cur}`, level: 'info', kind: 'fixed-missing',
-          title: `本月没有「${name}」的记录`,
-          body: `固定项目设在每月 ${r.day} 号（${formatMoney(r.amount)}），这个月还没有记录。如果已经付了，补记一笔；如果这个月不用付，可以忽略。`,
-          txIds: [], fix: { type: 'add-fixed', recurringId: r.id, date: due },
-        });
-      }
+    const word = firstWord(r.note);
+    // This month's charge is recorded when an entry falls in this month, or within the tolerance of the set day just
+    // across the month edge (rent for the 1st paid on 30 Sep). An entry not made by the item must be this bill: not
+    // already another fixed charge's double, and not named after another fixed item.
+    const forThisMonth = (d) => monthOf(d) === cur || Math.abs(daysBetween(d, due)) < DAY_TOLERANCE;
+    const otherWords = new Set(recurring.filter((x) => x.id !== r.id && x.active).map((x) => firstWord(x.note)).filter((w) => w && w !== word));
+    const logged = own.some((t) => forThisMonth(t.date))
+      || loose.some((u) => forThisMonth(u.date) && sameBill(u, r) && !claimed.has(u.id) && !otherWords.has(firstWord(u.note)));
+    if (due <= today && (!r.startMonth || r.startMonth <= cur) && !logged) {
+      out.push({
+        id: `missing:${r.id}:${cur}`, level: 'info', kind: 'fixed-missing',
+        title: `本月没有「${name}」的记录`,
+        body: `固定项目设在每月 ${r.day} 号（${formatMoney(r.amount)}），这个月还没有记录。如果已经付了，补记一笔；如果这个月不用付，可以忽略。`,
+        txIds: [], fix: { type: 'add-fixed', recurringId: r.id, date: due },
+      });
     }
     // Marked as done for this month, but nothing was recorded this month (e.g. last month's charge was
     // linked to it): this month's charge would never be logged or reserved.
-    if (due > today && r.lastMonth && r.lastMonth >= cur && (!r.startMonth || r.startMonth <= cur)) {
-      const logged = own.some((t) => monthOf(t.date) === cur)
-        || manual.some((u) => u.type === r.type && u.categoryId === r.categoryId && monthOf(u.date) === cur && near(u.amount, r.amount));
-      if (!logged) {
-        out.push({
-          id: `skipped:${r.id}:${cur}`, level: 'info', kind: 'fixed-skipped',
-          title: `「${name}」${dayLabel(due, today)}不会自动记账`,
-          body: `这个固定项目被标记为本月已记过，但本月没有它的记录${own.length ? `（最近一笔在${dayLabel(own.map((t) => t.date).sort().pop(), today)}）` : ''}，所以到时不会自动记上，「今天还能花」也不会预留这 ${formatMoney(r.amount)}。如果这个月照常扣款，点一下恢复。`,
-          txIds: [], fix: { type: 'unskip', recurringId: r.id },
-        });
-      }
+    if (due > today && r.lastMonth && r.lastMonth >= cur && (!r.startMonth || r.startMonth <= cur) && !logged) {
+      out.push({
+        id: `skipped:${r.id}:${cur}`, level: 'info', kind: 'fixed-skipped',
+        title: `「${name}」${dayLabel(due, today)}不会自动记账`,
+        body: `这个固定项目被标记为本月已记过，但本月没有它的记录${own.length ? `（最近一笔在${dayLabel(own.map((t) => t.date).sort().pop(), today)}）` : ''}，所以到时不会自动记上，「今天还能花」也不会预留这 ${formatMoney(r.amount)}。如果这个月照常扣款，点一下恢复。`,
+        txIds: [], fix: { type: 'unskip', recurringId: r.id },
+      });
     }
     const last = own.sort((a, b) => (a.date < b.date ? 1 : -1))[0];
     // A newer hand-typed entry that looks like the same service at another amount: the plan or price changed, but
-    // the fixed item still logs (and reserves, and counts toward runway) the old amount.
-    const word = firstWord(r.note);
+    // the fixed item still logs (and reserves, and counts toward runway) the old amount. Not from a future date
+    // (likely a typo, flagged above): it would mark a month that hasn't come.
     if (word && r.type === 'expense') {
       const after = last ? last.date : `${r.startMonth || cur}-01`;
       const others = recurring.filter((x) => x.id !== r.id && x.active);
       const changed = manual
-        .filter((u) => u.type === r.type && u.categoryId === r.categoryId && !!u.business === !!r.business
-          && u.date > after && firstWord(u.note) === word && !near(u.amount, r.amount)
+        .filter((u) => u.type === r.type && u.categoryId === r.categoryId && isBusiness(u) === isBusinessItem(r)
+          && u.date > after && u.date <= today && firstWord(u.note) === word && !near(u.amount, r.amount)
           && !others.some((x) => x.categoryId === u.categoryId && near(u.amount, x.amount)))
         .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
       if (changed) {
@@ -140,15 +183,19 @@ export function checkData({ transactions: txs, categories, recurring = [], setti
         });
       }
     }
-    if (last) {
-      const expected = dateInMonth(monthOf(last.date), r.day);
-      const realDay = dayOf(last.date);
-      if (Math.abs(dayOf(expected) - realDay) >= DAY_TOLERANCE) {
+    // The newest charge since the day was last set (a day just changed has no charge on it yet), measured to the
+    // nearest month's set day: a charge for the 1st paid on 30 Sep is a day early, not 29 days off.
+    const ref = own.find((t) => t.date <= today && (!r.daySince || t.date >= r.daySince));
+    if (ref) {
+      const gap = Math.min(...[-1, 0, 1].map((k) => Math.abs(daysBetween(ref.date, dateInMonth(addMonths(monthOf(ref.date), k), r.day)))));
+      const realDay = dayOf(ref.date);
+      if (gap >= DAY_TOLERANCE) {
         out.push({
           id: `day:${r.id}:${realDay}`, level: 'info', kind: 'fixed-day',
           title: `「${name}」的扣款日可能不是 ${r.day} 号`,
-          body: `最近一笔记在${dayLabel(last.date, today)}。把固定项目改成每月 ${realDay} 号，「今天还能花」才会在对的时间预留这笔钱。`,
-          txIds: [last.id], fix: { type: 'set-day', recurringId: r.id, day: realDay },
+          body: `最近一笔记在${dayLabel(ref.date, today)}。把固定项目改成每月 ${realDay} 号，「今天还能花」才会在对的时间预留这笔钱。`,
+          // `month`: under the new day that charge stands for its own month, so the fix must not log that month again
+          txIds: [ref.id], fix: { type: 'set-day', recurringId: r.id, day: realDay, month: monthOf(ref.date) },
         });
       }
     }
@@ -206,10 +253,18 @@ export function checkData({ transactions: txs, categories, recurring = [], setti
       txIds: [], fix: { type: 'plan' },
     });
   }
-  if (!settings.currentSavings) {
+  if (!settings.currentSavings && !settings.currentSavingsAt) {
     out.push({
-      id: 'plan:savings', level: 'info', kind: 'settings', title: '还没填目前存款',
-      body: '填了才能算出 Runway（不靠收入还能撑几个月）。', txIds: [], fix: { type: 'savings' },
+      id: 'plan:savings', level: 'info', kind: 'settings', title: '还没填手上有多少钱',
+      body: '填一次，App 就会按之后的收入和支出帮你算着走：「今天还能花」不会超过你真正有的钱，下次对账也能发现漏记。Runway 也要靠它。',
+      txIds: [], fix: { type: 'savings' },
+    });
+  } else if (settings.currentSavingsAt && daysBetween(settings.currentSavingsAt, today) >= RECONCILE_DAYS) {
+    out.push({
+      id: `plan:reconcile:${settings.currentSavingsAt}`, level: 'info', kind: 'settings',
+      title: `已经 ${daysBetween(settings.currentSavingsAt, today)} 天没对账`,
+      body: `上次是${dayLabel(settings.currentSavingsAt, today)}。看一下银行和电子钱包现在一共有多少，填进去就能知道这段时间有没有漏记。`,
+      txIds: [], fix: { type: 'savings' },
     });
   }
 
