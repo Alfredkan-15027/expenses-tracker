@@ -5,6 +5,7 @@ import { getKV, setKV, deleteKV } from './data/db.js';
 import { html, icon, mount } from './ui/html.js';
 import { haptic } from './ui/haptics.js';
 import { toast, closeAllSheets, confirmDialog } from './ui/overlays.js';
+import { animateChanges, markFresh, collapse } from './ui/motion.js';
 import { openEntrySheet, quickAdd } from './ui/sheets/entry.js';
 import { showLockScreen } from './ui/sheets/lockscreen.js';
 import { openOnboarding } from './ui/sheets/onboarding.js';
@@ -68,7 +69,8 @@ function ctx() {
   return { state: store.state, today: todayISO(), demo, rerender: render };
 }
 
-export function render({ keepScroll = true } = {}) {
+/** Draw the current screen. `entering`: it was just opened (plays its entrance instead of the change motion). */
+export function render({ keepScroll = true, entering = false } = {}) {
   if (!store.state.ready) return;
   const screen = SCREENS[app.current];
   const c = ctx();
@@ -80,6 +82,11 @@ export function render({ keepScroll = true } = {}) {
     mount(document.getElementById('nav-trailing'), screen.navActions?.(c) || '');
     mount(document.getElementById('nav-leading'), screen.navLeading?.(c) || '');
     screen.afterRender?.($screen(), c);
+    // Motion is decoration: if it ever fails, the page it decorates must still be there.
+    try {
+      animateChanges($screen(), app.current, { first: entering });
+      if (entering) markFresh($screen());
+    } catch { /* drawn without motion */ }
   } catch (err) {
     document.getElementById('nav-title').textContent = screen.title;
     mount($screen(), html`<div class="empty-state empty-state--error">
@@ -108,7 +115,7 @@ function navigate() {
   if (next !== app.current) {
     app.scroll[app.current] = window.scrollY;
     app.current = next;
-    render({ keepScroll: false });
+    render({ keepScroll: false, entering: true });
     window.scrollTo(0, app.scroll[next] || 0);
     updateNavbar();
     $screen().classList.remove('is-entering');
@@ -186,7 +193,15 @@ async function deleteTx(id) {
     if (!ok) { swipe.closeAll(); return; }
   }
   haptic('success');
-  const removed = await store.deleteTransaction(id);
+  await collapse(document.querySelector(`.swipe__action[data-id="${CSS.escape(id)}"]`)?.closest('.swipe'));
+  let removed;
+  try {
+    removed = await store.deleteTransaction(id);
+  } catch (err) {
+    render(); // unfold the row again: nothing was deleted
+    throw err;
+  }
+  if (!removed) { render(); return; }
   toast(`已删除 ${formatMoney(removed.amount)} · ${dayLabel(removed.date)}`, {
     icon: 'trash', action: { label: '撤销', onClick: () => store.restoreTransaction(removed) },
   });
@@ -403,7 +418,7 @@ async function start() {
   const resumed = await takeReloadMark();
   if (!resumed && !(autoLockMs > 0 && away >= 0 && away <= autoLockMs)) await maybeLock();
   store.subscribe(() => render());
-  render({ keepScroll: false });
+  render({ keepScroll: false, entering: true });
   document.documentElement.classList.add('is-ready');
 
   if (!store.state.settings.onboarded && !demo) openOnboarding();
