@@ -32,7 +32,9 @@ export function openCashSheet() {
             ${cash.invested ? html`<li><span>${cash.invested > 0 ? '转进投资' : '从投资取出'}</span><span>${cash.invested > 0 ? '−' : '+'}${formatMoney(Math.abs(cash.invested))}</span></li>` : ''}
           </ul>
         </section>` : html`<p class="callout">${icon('info')}<span>填一次现在手上有多少钱，App 就会按之后记的收入和支出帮你算着走：「今天还能花」不会超过你真正有的钱，下次对账也能看出有没有漏记。</span></p>`}
-        ${moneyField({ name: 'real', label: '现在实际有多少', value: 0, hint: '银行、电子钱包和现金里随时能用的钱加起来（投资另计）。只存在这台手机。' })}
+        ${moneyField({ name: 'real', label: '现在实际有多少', value: 0, hint: '银行、电子钱包和现金里随时能用的钱加起来，存款也算（投资另计）。只存在这台手机。' })}
+        ${moneyField({ name: 'kept', label: '其中存款（不动用）', value: state.settings.keptSavings, hint: '这部分不会算进「今天还能花」，只用剩下的钱来算；Runway 仍按全部的钱算。没有就留空。' })}
+        <p class="cash-split" aria-live="polite" hidden></p>
         <div class="cash-diff" aria-live="polite" hidden></div>
         <fieldset class="cash-choice" hidden>
           <legend class="sr-only">差额怎么处理</legend>
@@ -51,9 +53,20 @@ export function openCashSheet() {
         const form = el.querySelector('form');
         const diffBox = el.querySelector('.cash-diff');
         const choice = el.querySelector('.cash-choice');
+        const split = el.querySelector('.cash-split');
+        // The savings part must fit inside the total; what is left is the money 今天还能花 may use.
+        const keptError = (real, kept) => (kept === null ? '存款金额不正确（最多两位小数）' : real !== null && kept > real ? '存款不能比现在实际有的钱多' : '');
+        const showSplit = (real, kept, typed) => {
+          const err = keptError(real, kept);
+          split.hidden = !err && !(typed && kept);
+          split.dataset.tone = err ? 'bad' : '';
+          split.textContent = err || (typed && kept ? `能用的钱 ${formatMoney(real - kept)}（存款 ${formatMoney(kept)} 不动用）` : '');
+          return !err;
+        };
         const update = () => {
           const real = readMoney(form.real);
           const typed = form.real.value.trim() !== '';
+          showSplit(real, readMoney(form.kept), typed && real !== null);
           if (real === null) {
             diffBox.hidden = false;
             diffBox.dataset.tone = 'bad';
@@ -88,15 +101,17 @@ export function openCashSheet() {
         let saving = false;
         async function save() {
           const real = readMoney(form.real);
+          const kept = readMoney(form.kept);
           if (saving) return;
           if (real === null || form.real.value.trim() === '') { haptic('error'); form.real.focus(); update(); return; }
+          if (keptError(real, kept)) { haptic('error'); form.kept.focus(); update(); return; }
           saving = true;
           const gap = cash ? gapEntry(real, cash.balance, today) : null;
           const record = gap && form.gap.value === 'record';
           try {
             // The gap entry first: it is dated before today, so it is not counted again on top of the new figure.
             if (record) await addTransaction(gap);
-            await saveSettings({ currentSavings: real });
+            await saveSettings({ currentSavings: real, keptSavings: kept });
           } catch (err) {
             saving = false;
             haptic('error');
@@ -106,7 +121,7 @@ export function openCashSheet() {
           haptic('success');
           toast(record
             ? `已对账 · 补记${gap.type === 'expense' ? '支出' : '收入'} ${formatMoney(gap.amount)}`
-            : `已对账 · 手上 ${formatMoney(real, { round: true })}`, { icon: 'check', tone: 'success' });
+            : `已对账 · 手上 ${formatMoney(real, { round: true })}${kept ? `，能用 ${formatMoney(real - kept, { round: true })}` : ''}`, { icon: 'check', tone: 'success' });
           api.close();
         }
       },
