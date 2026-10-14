@@ -10,7 +10,7 @@ const { addDays } = await import('../src/core/dates.js');
 const { periodFor, prevPeriod } = await import('../src/core/periods.js');
 const { DEFAULT_CATEGORIES } = await import('../src/core/categories.js');
 const { sanitizeSettings } = await import('../src/core/settings.js');
-const { buildInsights, comparePeriods, runwayShown, MIN_COMPARE_DAYS } = await import('../src/core/analysis.js');
+const { buildInsights, comparePeriods, runwayShown, MIN_COMPARE_DAYS, evaluatePeriod } = await import('../src/core/analysis.js');
 const { default: insights } = await import('../src/ui/screens/insights.js');
 const { default: today } = await import('../src/ui/screens/today.js');
 
@@ -90,7 +90,10 @@ test('payday: 储蓄率 and 结余 show where the period is heading, the same fi
   assert.match(home, new RegExp(`本期预计结余 ${tile[2].replace(/[$()*+.?[\\\]^{|}]/g, '\\$&')}`));
   // A shortfall is measured from the projection
   assert.match(sav.body, /预计距离每期存款目标 RM 1,000 还差 RM 840/);
-  assert.match(home, /存款目标 RM 1,000 · 还差 RM 840/);
+  assert.match(home, /存款目标 RM 1,000 · 照目前速度差 RM 840/);
+  // … and the ⓘ beside it says it is an estimate, and what a day may cost to still reach the target: (1,560 − 1,000) / 35
+  assert.match(home, /不是现在已经差的钱/);
+  assert.match(home, /接下来 35 天的日常开销平均每天约 RM 16 以内/);
 });
 
 test('payday: the Runway tile and card show the same months; the small print is folded', () => {
@@ -103,4 +106,20 @@ test('payday: the Runway tile and card show the same months; the small print is 
   assert.match(html, /<button type="button" class="info-btn" data-info="bench" aria-expanded="false"/);
   assert.match(html, /class="info-panel " id="info-bench" inert/);
   assert.match(html, /class="insight__head" data-info="insight-savings" aria-expanded="false"/);
+});
+
+test('insurance is protection: its own row, out of the living cost and of the 健康 range', () => {
+  const withClinic = [...txs, tx('2026-11-10', RM(120), 'health', { note: '诊所' })];
+  const cur = periodFor('2026-11-14', { ...ctx, txs: withClinic });
+  const ev = evaluatePeriod({ txs: withClinic, period: cur, categories: DEFAULT_CATEGORIES, profile: {}, today: '2026-11-14', recurring, startDate: '2026-09-14' });
+  assert.equal(ev.model.insurance, RM(250));
+  assert.equal(ev.perMonth, ev.model.personalMonthly - RM(250));
+  assert.equal(ev.rows.find((r) => r.categoryId === 'insurance').status, 'none');
+  assert.equal(ev.rows.find((r) => r.categoryId === 'health').status, 'ok'); // a clinic visit is not "偏高"
+  const ins = buildInsights({ txs: withClinic, period: cur, categories: DEFAULT_CATEGORIES, profile: {}, settings, today: '2026-11-14', recurring });
+  assert.ok(!ins.some((i) => i.id === 'cat-health' || i.id === 'cat-insurance'));
+  assert.match(ins.find((i) => i.id === 'verdict').body, /保险 RM 250／月另计/);
+  const page = text(insights.render({ state: { ...state, transactions: withClinic }, today: '2026-11-14' }));
+  assert.match(page, /保险 保障，不算进生活费评估/);
+  assert.match(page, /也不含保险（每月 RM 250）/);
 });
