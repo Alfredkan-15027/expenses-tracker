@@ -19,7 +19,7 @@ import { openHealthCheck, healthIssues } from '../sheets/health.js';
 import { openCashSheet, currentCash } from '../sheets/cash.js';
 import { dayLabel } from '../../core/dates.js';
 
-export const APP_VERSION = '1.4.1';
+export const APP_VERSION = '1.4.2';
 
 let lockInfo = { enabled: false, pinLength: 6, autoLockMs: 60_000, biometric: false };
 let faceIdAvailable = false;

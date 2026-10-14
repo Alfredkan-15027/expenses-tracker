@@ -55,7 +55,7 @@ const screen = {
     });
     const tIdx = ui.trendIndex ?? rows.length - 1;
     const plan = periodBudget({ txs, settings: whole, period: p, recurring: state.recurring });
-    const cash = cashOnHand({ txs, settings, flows: state.investFlows, today });
+    const cash = cashOnHand({ txs, settings, flows: state.investFlows, today, recurring: state.recurring });
     const savingsNow = cash ? cash.balance : settings.currentSavings;
     const rw = runway({ txs, currentSavings: savingsNow, today, since, recurring: state.recurring, known: !!cash });
     const nextP = nextPeriod(p, ctx);
