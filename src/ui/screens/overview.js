@@ -3,7 +3,7 @@
 // 储蓄率 and 花最多 beside it, and 手上的钱 / 创业投入 as a wide tile under it.
 // While the period runs, 储蓄率 is where it is heading (periodOutlook, the same figure as the 重点 insight): right after
 // payday all the income is in and little has gone out, so the rate so far would always look excellent.
-import { html, icon, money } from '../html.js';
+import { html, icon, money, facts } from '../html.js';
 import { formatMoney, formatPercent } from '../../core/money.js';
 import { dayLabel } from '../../core/dates.js';
 import { runwayShown } from '../../core/analysis.js';
@@ -50,7 +50,7 @@ export function overview({ s, isCurrent, untracked = false, personal, cat, cash,
     <div class="bento__tile">
       <span class="bento__label">花最多</span>
       <span class="bento__value">${top ? cat(top[0]).name : '—'}</span>
-      <span class="bento__sub">${top ? `${formatMoney(top[1], { round: true })} · 占 ${formatPercent(top[1] / personalTotal)}` : '还没有个人支出'}</span>
+      <span class="bento__sub">${top ? facts(formatMoney(top[1], { round: true }), `占 ${formatPercent(top[1] / personalTotal)}`) : '还没有个人支出'}</span>
     </div>
     ${isCurrent ? cashTile(cash, rw, today) : s.business > 0 ? html`<div class="bento__tile bento__tile--wide">
       <span class="bento__icon" data-color="mint">${icon('business')}</span>
@@ -73,7 +73,7 @@ function cashTile(cash, rw, today) {
     <span class="bento__icon" data-color="pink">${icon('wallet')}</span>
     <span class="bento__body">
       <span class="bento__label">手上的钱</span>
-      <span class="bento__sub">${cash.kept ? `能用 ${formatMoney(cash.spendable, { round: true })} · ` : ''}${dayLabel(cash.at, today)}对账</span>
+      <span class="bento__sub">${facts(cash.kept ? `能用 ${formatMoney(cash.spendable, { round: true })}` : '', `${dayLabel(cash.at, today)}对账`)}</span>
     </span>
     <span class="bento__aside">
       <span class="bento__value ${cash.balance < 0 ? 'is-negative' : ''}" data-motion="digits" data-motion-key="overview-cash">${money(cash.balance, { cls: 'money--bento' })}</span>

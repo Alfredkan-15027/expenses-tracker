@@ -1,5 +1,5 @@
 // 分析 — monthly summary, KL 24yo founder benchmark, insights, categories, month-over-month, trend, runway.
-import { html, icon, catIcon } from '../html.js';
+import { html, icon, catIcon, facts } from '../html.js';
 import { periodSwitcher, statusBadge } from './shared.js';
 import { stackBar, tierGauge, trendChart, divergeList, progress } from '../charts.js';
 import {
@@ -65,7 +65,8 @@ const screen = {
     const cat = (id) => cats.get(id) || unknownCategory();
     const housing = HOUSING_OPTIONS.find((o) => o.id === ev.profile.housing)?.label;
     const transport = TRANSPORT_OPTIONS.find((o) => o.id === ev.profile.transport)?.label;
-    const [fixedShown, dailyShown] = ev.model ? roundedParts(ev.perMonth, ev.model.fixedPersonal) : [0, 0];
+    // Insurance is kept out of the living cost (see analysisCategory), so out of its fixed part too.
+    const [fixedShown, dailyShown] = ev.model ? roundedParts(ev.perMonth, ev.model.fixedPersonal - ev.model.fixedInsurance) : [0, 0];
     // Category rows: everything with spending in the period, and any category the running period flags from its
     // monthly estimate even with nothing spent on it yet — the verdict points at the flagged rows "below".
     const listed = ev.rows.filter((r) => r.amount > 0 || r.status === 'high' || r.status === 'over' || r.status === 'pace');
@@ -87,7 +88,7 @@ const screen = {
             ${ev.model
               ? `每月预计个人生活费 = 个人固定项目 ${formatMoney(fixedShown, { round: true })} + 日常开销 ${formatMoney(dailyShown, { round: true })}（按近 ${ev.model.days} 天的平均速度）。`
               : ''}
-            不含创业投入${s.business ? `（${THIS} ${formatMoney(s.business, { round: true })}）` : ''}。
+            不含创业投入${s.business ? `（${THIS} ${formatMoney(s.business, { round: true })}）` : ''}${ev.insurance > 0 ? `，也不含保险（${ev.model ? '每月' : THIS} ${formatMoney(ev.insurance, { round: true })}）：保险是保障，不算生活费；EPF 的标准里也没有保险` : ''}。
             ${!ev.model && ev.isPartial ? `这一期只记录了 ${Math.round(ev.elapsed * 100)}% 的天数，日常开销已推算到${cycle ? '整期' : '整月'}。` : ''}
             ${ev.normalized ? `本期共 ${p.days} 天（${p.label}），已换算成 30 天和每月参考值比较。` : ''}
           </p>
@@ -136,7 +137,13 @@ const screen = {
                 ${catIcon(cat(r.categoryId))}
                 <span class="row__body">
                   <span class="row__title">${cat(r.categoryId).name}</span>
-                  <span class="row__subtitle">${r.monthly !== null && r.monthly !== undefined ? `每月约 ${formatMoney(r.monthly, { round: true })} · ` : r.per30 !== null && r.per30 !== undefined ? `按 30 天约 ${formatMoney(r.per30, { round: true })} · ` : ''}${r.range ? `参考 ${r.range[0]}–${r.range[1]}` : '无参考值'} · ${rowShares[i]}%</span>
+                  <span class="row__subtitle">${r.categoryId === 'insurance'
+                    ? facts('保障，不算进生活费评估', `${rowShares[i]}%`)
+                    : facts(
+                      r.monthly !== null && r.monthly !== undefined ? `每月约 ${formatMoney(r.monthly, { round: true })}` : r.per30 !== null && r.per30 !== undefined ? `按 30 天约 ${formatMoney(r.per30, { round: true })}` : '',
+                      r.range ? `参考 ${r.range[0]}–${r.range[1]}` : '无参考值',
+                      `${rowShares[i]}%`,
+                    )}</span>
                 </span>
                 <span class="row__trail">
                   <span class="row__value">${formatMoney(r.amount, { round: true })}</span>

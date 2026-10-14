@@ -1,5 +1,5 @@
 // 今天 — daily allowance, month rings, one-tap quick picks, and today's entries.
-import { html, icon, catIcon, money } from '../html.js';
+import { html, icon, catIcon, money, facts } from '../html.js';
 import { activityRings, progress } from '../charts.js';
 import { dailyBudget, quickPicks, periodOutlook, periodSummary, spendingModel, trackingStart } from '../../core/analysis.js';
 import { infoButton, infoPanel } from '../info.js';
@@ -65,7 +65,7 @@ const screen = {
       <section class="section">
         <div class="section__header">
           <h2 class="section__title">今天的记录 ${todays.length ? infoButton('today-list') : ''}</h2>
-          ${todays.length ? html`<span class="section__meta">支出 ${formatMoney(spentToday)}${incomeToday ? html` · 收入 ${formatMoney(incomeToday)}` : ''}</span>` : ''}
+          ${todays.length ? html`<span class="section__meta">${facts(`支出 ${formatMoney(spentToday)}`, incomeToday ? `收入 ${formatMoney(incomeToday)}` : '')}</span>` : ''}
         </div>
         ${todays.length
           ? html`${infoPanel('today-list', html`<p>点一下可修改，向左滑动可删除。上面「常用」是近 60 天记过两次以上的，点一下就记好。</p>`)}
@@ -182,9 +182,7 @@ function hero(b, cycleLine = '') {
       ${notes.length ? infoButton('hero', '额度怎么算') : ''}
     </div>
     <div class="hero-amount" data-motion="digits" data-motion-key="hero">${money(amount, { cls: 'money--hero' })}</div>
-    <p class="hero-sub">
-      每日额度 ${formatMoney(Math.max(0, b.allowanceToday))} · 今天已花 ${formatMoney(b.shownToday)}
-    </p>
+    <p class="hero-sub">${facts(`每日额度 ${formatMoney(Math.max(0, b.allowanceToday))}`, `今天已花 ${formatMoney(b.shownToday)}`)}</p>
     ${progress({ ratio: b.usedRatio, marker: b.monthProgress, tone: tone === 'good' ? 'spend' : tone, label: `${THIS}预算使用`, key: 'hero' })}
     <div class="hero-foot">
       <span>${overPeriod
@@ -220,19 +218,37 @@ function monthCard(b, settings, outlook = null) {
         <li class="rings__item" data-tone="${spendTone}">
           <span class="rings__label">${bizOutside ? `${THIS}个人支出` : `${THIS}支出`}</span>
           <span class="rings__value">${formatMoney(b.spentMonth, { round: true })}</span>
-          <span class="rings__sub">${spendSub}${bizOutside ? ` · 另有创业 ${formatMoney(b.spentBusiness, { round: true })}` : ''}</span>
+          <span class="rings__sub">${facts(spendSub, bizOutside ? `另有创业 ${formatMoney(b.spentBusiness, { round: true })}` : '')}</span>
         </li>
         <li class="rings__item" data-tone="save">
-          <span class="rings__label">${outlook ? `${THIS}预计结余` : `${THIS}结余`}</span>
+          <span class="rings__label">${outlook ? html`${THIS}预计结余 ${infoButton('outlook', '预计结余怎么算')}` : `${THIS}结余`}</span>
           <span class="rings__value">${formatMoney(saved, { round: true })}</span>
           <span class="rings__sub">${!outlook && b.incomeMonth <= 0 ? '记下收入后显示进度'
             : target > 0
-              ? `${saved >= target ? '可达成' : ''}存款目标 ${formatMoney(target, { round: true })}${saved >= target ? '' : ` · 还差 ${formatMoney(target - saved, { round: true })}`}${bizOutside ? ' · 已扣创业' : ''}`
+              ? facts(`${saved >= target ? '可达成' : ''}存款目标 ${formatMoney(target, { round: true })}`, saved >= target ? '' : `${outlook ? '照目前速度' : ''}差 ${formatMoney(target - saved, { round: true })}`, bizOutside ? '已扣创业' : '')
               : outlook ? `按目前速度到${dayLabel(b.period.end)}` : '未设定存款目标'}</span>
         </li>
       </ul>
     </div>
+    ${outlook ? infoPanel('outlook', outlookNote(b, outlook, target)) : ''}
   </section>`;
+}
+
+/**
+ * 预计结余, worked out: not a shortfall yet, but where today's pace leads by the end of the period — and, with a savings
+ * target, how much a day the rest of the period may spend to still reach it.
+ */
+function outlookNote(b, o, target) {
+  const THIS = b.period.kind === 'cycle' ? '本期' : '本月';
+  const rm = (c) => formatMoney(c, { round: true });
+  const { soFar, days: daysAfter } = o;
+  const room = soFar + o.incomeAhead - o.fixedAhead - target; // what the days left may spend and still reach the target
+  return html`<ul class="info-list">
+    <li>${icon('calendar')}<span>这是到${dayLabel(b.period.end)}的估计，不是现在已经差的钱：${THIS}到今天收入减支出是 ${rm(soFar)}${o.incomeAhead ? `，另有固定收入 ${rm(o.incomeAhead)} 还没到` : ''}；接下来还要付固定支出 ${rm(o.fixedAhead)}，剩下 ${daysAfter} 天按最近每天约 ${rm(daysAfter ? Math.round(o.dayToDay / daysAfter) : 0)} 的日常开销算，大约 ${rm(o.dayToDay)}。</span></li>
+    ${target > 0 && daysAfter > 0 ? html`<li>${icon('target')}<span>${room > 0
+      ? `想达成存款目标 ${rm(target)}，接下来 ${daysAfter} 天的日常开销平均每天约 ${rm(Math.floor(room / daysAfter))} 以内。`
+      : `扣掉固定支出后，就算接下来一分钱都不花，${THIS}也存不到目标 ${rm(target)}。`}</span></li>` : ''}
+  </ul>`;
 }
 
 /** 手上的钱: the balance carried forward from the last check (对账), one tap to check it again. */
@@ -250,7 +266,7 @@ function cashCard(cash, today) {
   return html`<button type="button" class="card cash-card" data-open-cash data-tone="${stale ? 'warn' : ''}">
     <span class="cash-card__icon">${icon('wallet')}</span>
     <span class="cash-card__body"><span class="cash-card__label">手上的钱</span>
-      <span class="cash-card__sub">${cash.kept ? `能用 ${formatMoney(cash.spendable, { round: true })} · ` : ''}${stale ? `${cash.days} 天没对账，点一下核对` : `${dayLabel(cash.at, today)}对账`}</span></span>
+      <span class="cash-card__sub">${facts(cash.kept ? `能用 ${formatMoney(cash.spendable, { round: true })}` : '', stale ? `${cash.days} 天没对账，点一下核对` : `${dayLabel(cash.at, today)}对账`)}</span></span>
     <span class="cash-card__value" data-motion="digits" data-motion-key="cash">${money(cash.balance, { cls: 'money--row' })}</span>
     ${icon('chevron-right', 'cash-card__chevron')}
   </button>`;
