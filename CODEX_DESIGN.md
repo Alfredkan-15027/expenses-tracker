@@ -160,11 +160,15 @@ npm run dev
 - 动画用的 token：`--ease-pop`、`--dur-pop`、`--dur-enter`、`--stagger`
 - 「减少动态效果」打开时全部不播（`base.css` 的 reduced-motion 规则 + `motion.js` 自己也会检查）
 
+### 一行里的几个数字（`base.css` 的 `.fact`，由 `html.js` 的 `facts()` 加上）
+
+「能用 RM 1,997 · 今天对账」这类用「·」隔开的小字，每一段包在 `.fact` 里（`white-space: nowrap`），所以只会在两段之间换行，不会把「对账」拆开，也不会让「·」出现在行首。`.section__header` 里的标题不换行（连同 ⓘ），旁边的数字在段与段之间换行、靠右。
+
 ### 说明 ⓘ（`components.css` 的「说明」区块，由 `src/ui/info.js` 加上）
 
 小字说明默认收起，点标题旁的 ⓘ（「重点」里点整行）才展开，App 重开后又全部收起。下面这些 class 不能改：
 
-- `.info-btn`（ⓘ 按钮，`[aria-expanded="true"]` 时是打开状态）
+- `.info-btn`（ⓘ 按钮，`[aria-expanded="true"]` 时是打开状态；圆环旁「预计结余」的小一号：`.rings__label .info-btn`）
 - `.info-panel`（`[data-open]` 时展开；收起时有 `inert`）、`.info-panel__inner`（裁切）、`.info-panel__box`（里面的底色方块）、`.info-panel--center`
 - `.info-list`（说明里「图标 + 一行字」的列表）
 - 展开动画：高度用 grid rows 0fr → 1fr，文字淡入、由模糊变清楚；「减少动态效果」时直接显示
