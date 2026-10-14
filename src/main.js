@@ -6,6 +6,7 @@ import { html, icon, mount } from './ui/html.js';
 import { haptic } from './ui/haptics.js';
 import { toast, closeAllSheets, confirmDialog } from './ui/overlays.js';
 import { animateChanges, markFresh, collapse } from './ui/motion.js';
+import { onInfoClick } from './ui/info.js';
 import { openEntrySheet, quickAdd } from './ui/sheets/entry.js';
 import { showLockScreen } from './ui/sheets/lockscreen.js';
 import { openOnboarding } from './ui/sheets/onboarding.js';
@@ -151,6 +152,7 @@ async function onClick(e) {
   if (app.locked) return;
   if (e.target.closest('#overlay-root')) return; // sheets and alerts handle their own taps
   if (e.target.closest('[data-reload]')) { location.reload(); return; }
+  if (onInfoClick(e)) return; // ⓘ: unfold / fold an explanation in place
   const tab = e.target.closest('[data-tab]');
   if (tab) {
     haptic();
