@@ -2,7 +2,7 @@
 import { addDays, addMonths, dateInMonth, dayLabel, dayOf, monthOf, monthRange } from './dates.js';
 import { CYCLE_INCOME_CATEGORIES, daysBetween, expectedEnd, inPeriod, monthPeriod, payCycle, periodFor, prevPeriod } from './periods.js';
 import { categoryMap } from './categories.js';
-import { findManualMatch } from './recurring.js';
+import { findManualMatch, paidByHand } from './recurring.js';
 import {
   categoryRanges, livingCostTiers, normalizeProfile, TIER_LABELS,
   SAVINGS_RATE_GOOD, SAVINGS_RATE_OK, NEEDS_SHARE_MAX, WANTS_SHARE_MAX, RUNWAY_TARGET_MONTHS,
@@ -73,13 +73,15 @@ export function personalByCategory(txs, ymOrPeriod) {
  * Recurring expenses (or, with type 'income', recurring income) still to come after `today` up to `end`
  * (default: end of this month), not yet generated.
  */
-export function upcomingRecurring(recurring = [], today, end = '', type = 'expense') {
+export function upcomingRecurring(recurring = [], today, end = '', type = 'expense', txs = []) {
   const last = end || dateInMonth(monthOf(today), 31);
+  const byHand = paidByHand(txs, recurring); // already paid by hand this month: nothing left to set aside
   let sum = 0;
   for (const r of recurring) {
     if (!r.active || r.type !== type) continue;
     for (const m of monthRange(monthOf(today), monthOf(last))) {
       if (r.lastMonth && r.lastMonth >= m) continue;
+      if (byHand.has(`${r.id}|${m}`)) continue;
       if (r.startMonth && r.startMonth > m) continue;
       const due = dateInMonth(m, r.day);
       if (due > today && due <= last) sum += r.amount;
@@ -224,11 +226,12 @@ export function spendingModel({ txs, recurring = [], today, since = '' }) {
  * Entries dated before that day are taken as already in the figure; entries on that day count when they were logged
  * after it was filled in (`currentSavingsTs`; without one, that day's entries are taken as included). Entries dated
  * after today don't count yet. Null when it was never filled in.
- * `todayOut`: today's spending in it that a fixed item didn't make (for today's cash allowance).
+ * `todayOut`: today's spending in it that is not a fixed item's charge — made by the item, or (with `recurring`) a
+ * fixed item paid by hand (see paidByHand) — for today's cash allowance; `todayOutBiz`: the business part of it.
  * `kept`: the savings in it that are not to be spent (settings.keptSavings); `spendable` = balance − kept, the money
  * the allowance may use. Runway and the goal still count all of it.
  */
-export function cashOnHand({ txs, settings, flows = [], today }) {
+export function cashOnHand({ txs, settings, flows = [], today, recurring = [] }) {
   const at = settings?.currentSavingsAt || '';
   if (!at) return null;
   const ts = settings.currentSavingsTs || 0;
@@ -238,12 +241,19 @@ export function cashOnHand({ txs, settings, flows = [], today }) {
   let invested = 0;
   let count = 0;
   let todayOut = 0;
+  let todayOutBiz = 0;
+  const fixedByHand = new Set([...paidByHand(txs, recurring).values()].map((t) => t.id));
   for (const t of txs) {
+    // Today's spending, also what was logged before the check today: it is already out of the figure, and the
+    // money at the start of today = balance + all of today's spending.
+    if (t.type === 'expense' && t.date === today && !t.recurringId && !fixedByHand.has(t.id)) {
+      todayOut += t.amount;
+      if (isBusiness(t)) todayOutBiz += t.amount;
+    }
     if (t.date > today || !after(t.date, t.createdAt)) continue;
     count += 1;
     if (t.type === 'income') { income += t.amount; continue; }
     spent += t.amount;
-    if (t.date === today && !t.recurringId) todayOut += t.amount;
   }
   for (const f of flows) {
     if (f.date > today || !after(f.date, f.createdAt)) continue;
@@ -254,7 +264,7 @@ export function cashOnHand({ txs, settings, flows = [], today }) {
   const balance = base + income - spent - invested;
   const kept = settings.keptSavings || 0;
   return {
-    base, at, days: Math.max(0, daysBetween(at, today)), income, spent, invested, count, todayOut,
+    base, at, days: Math.max(0, daysBetween(at, today)), income, spent, invested, count, todayOut, todayOutBiz,
     balance, kept, spendable: balance - kept,
   };
 }
@@ -364,6 +374,8 @@ export function dailyBudget({ txs, settings, recurring = [], today, cash = null 
   let fixedToday = 0;
   let spentMonth = 0;
   let spentBusiness = 0;
+  // A fixed item paid by hand (rent transferred early) is a fixed charge too: set aside, not today's spending.
+  const fixedByHand = new Set([...paidByHand(txs, recurring).values()].map((t) => t.id));
   for (const t of txInPeriod(txs, p)) {
     if (t.type !== 'expense') continue;
     // With a prorated budget, spending from before tracking started belongs to the unbudgeted part.
@@ -373,31 +385,33 @@ export function dailyBudget({ txs, settings, recurring = [], today, cash = null 
     if (biz && !countsBusiness) continue;
     if (t.date === today) {
       spentToday += t.amount;
-      if (t.recurringId) fixedToday += t.amount;
+      if (t.recurringId || fixedByHand.has(t.id)) fixedToday += t.amount;
     }
     if (inBudget) spentMonth += t.amount;
   }
   const spentBefore = spentMonth - spentToday;
   const spentTodayFree = spentToday - fixedToday;
-  const reserved = upcomingRecurring(countsBusiness ? recurring : recurring.filter((r) => !isBusinessItem(r)), today, p.end);
+  const reserved = upcomingRecurring(countsBusiness ? recurring : recurring.filter((r) => !isBusinessItem(r)), today, p.end, 'expense', txs);
   const remainingAtStart = budget - spentBefore - fixedToday - reserved;
   let allowanceToday = Math.floor(remainingAtStart / daysLeft);
   let leftMonth = budget - spentMonth - reserved;
   // The budget can only be spent if the money is there. With the money on hand known (对账, see cashOnHand), what
   // it can still cover — after every fixed item still due this period, business ones too: it's the same account —
-  // spread over the days left caps the allowance. Then today's spending is counted the same way (all of it).
+  // spread over the days left caps the allowance. Then today's spending is counted the same way — business spending
+  // only when it counts against the budget; otherwise a business payment today just leaves less for the days left.
   let limit = 'budget';
   let shownToday = spentTodayFree;
   let cashLeft = null;
   let reservedAll = reserved;
   if (cash && hasPlan) {
-    reservedAll = upcomingRecurring(recurring, today, p.end);
+    reservedAll = upcomingRecurring(recurring, today, p.end, 'expense', txs);
     cashLeft = (cash.spendable ?? cash.balance) - reservedAll; // savings kept aside are not spending money
-    const cashAllowance = Math.floor((cashLeft + cash.todayOut) / daysLeft);
+    const cashToday = cash.todayOut - (countsBusiness ? 0 : cash.todayOutBiz || 0);
+    const cashAllowance = Math.floor((cashLeft + cashToday) / daysLeft);
     if (cashAllowance < allowanceToday) {
       limit = 'cash';
       allowanceToday = cashAllowance;
-      shownToday = cash.todayOut;
+      shownToday = cashToday;
       leftMonth = Math.min(leftMonth, cashLeft);
     }
   }
@@ -722,7 +736,7 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
     let net = s.net;
     let body;
     if (ev.model) {
-      const fixedAhead = upcomingRecurring(ev.model.handRent ? [...recurring, ev.model.handRent] : recurring, today, p.end);
+      const fixedAhead = upcomingRecurring(ev.model.handRent ? [...recurring, ev.model.handRent] : recurring, today, p.end, 'expense', txs);
       net = s.net + incomeAhead - fixedAhead - Math.round(ev.model.variableDaily * daysBetween(today, p.end));
       body = `${THIS}收入 ${formatMoney(s.income, { round: true })}${incomeAhead ? `，另有固定收入 ${formatMoney(incomeAhead, { round: true })} 还没到` : ''}，目前已花 ${formatMoney(s.expense, { round: true })}。按目前速度，到 ${dayLabel(p.end, today)}预计结余 ${formatMoney(net, { round: true })}，储蓄率约 ${formatPercent(net / income)}。`;
     } else {

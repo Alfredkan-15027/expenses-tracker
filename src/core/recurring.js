@@ -8,10 +8,13 @@ const MAX_BACKFILL_MONTHS = 12;
  * Idempotent: each item remembers the last month it generated (`lastMonth`),
  * so deleting a generated entry never brings it back.
  */
-export function generateDue(recurring, today, newId, now = Date.now()) {
+export function generateDue(recurring, today, newId, now = Date.now(), txs = []) {
   const cur = monthOf(today);
   const created = [];
   const updated = [];
+  // A month already paid by hand (rent transferred early, typed in as a normal entry) is done: logging it on its
+  // day as well would count it twice.
+  const byHand = paidByHand(txs, recurring);
   for (const r of recurring) {
     if (!r.active) continue;
     let from = r.lastMonth ? addMonths(r.lastMonth, 1) : (r.startMonth || cur);
@@ -22,6 +25,8 @@ export function generateDue(recurring, today, newId, now = Date.now()) {
     for (const ym of monthRange(from, cur)) {
       const date = dateInMonth(ym, r.day);
       if (date > today) break;
+      last = ym;
+      if (byHand.has(`${r.id}|${ym}`)) continue;
       created.push({
         id: newId(),
         type: r.type,
@@ -34,7 +39,6 @@ export function generateDue(recurring, today, newId, now = Date.now()) {
         createdAt: now,
         updatedAt: now,
       });
-      last = ym;
     }
     if (last !== (r.lastMonth || null)) updated.push({ ...r, lastMonth: last });
   }
@@ -71,6 +75,30 @@ export function sameBill(t, { type, categoryId, amount, note }) {
   const a = firstWord(t.note);
   const b = firstWord(note);
   return !a || !b || a === b;
+}
+
+/**
+ * Fixed-item months paid by hand: an entry typed in that month that looks like the item's charge (sameBill) while
+ * the item logged nothing itself that month. One entry stands for one item only (largest items first).
+ * Map(`${itemId}|${YYYY-MM}` → the entry).
+ */
+export function paidByHand(txs = [], recurring = []) {
+  const out = new Map();
+  if (!txs.length) return out;
+  const logged = new Set(txs.filter((t) => t.recurringId).map((t) => `${t.recurringId}|${monthOf(t.date)}`));
+  const used = new Set();
+  const items = recurring.filter((r) => r.active && r.amount > 0).sort((a, b) => b.amount - a.amount);
+  for (const r of items) {
+    for (const t of txs) {
+      if (t.recurringId || used.has(t.id) || !sameBill(t, r)) continue;
+      const ym = monthOf(t.date);
+      const key = `${r.id}|${ym}`;
+      if (logged.has(key) || out.has(key) || (r.startMonth && r.startMonth > ym)) continue;
+      out.set(key, t);
+      used.add(t.id);
+    }
+  }
+  return out;
 }
 
 /**
