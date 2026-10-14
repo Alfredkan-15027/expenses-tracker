@@ -11,7 +11,7 @@ export const PALETTE = [
 export const CATEGORY_ICONS = [
   'food', 'coffee', 'groceries', 'transport', 'car', 'housing', 'utilities', 'phone',
   'health', 'family', 'gift', 'shopping', 'social', 'subscriptions', 'learning',
-  'business', 'travel', 'pet', 'sport', 'beauty', 'game', 'other',
+  'business', 'travel', 'pet', 'sport', 'beauty', 'game', 'shield', 'other',
   'salary', 'bizincome', 'freelance', 'otherincome',
 ];
 
@@ -30,7 +30,8 @@ export const DEFAULT_CATEGORIES = [
   { id: 'transport', type: 'expense', name: '交通', hint: 'Grab · LRT/MRT · 油费 · Toll · 停车', icon: 'transport', color: 'blue', group: 'need' },
   { id: 'housing', type: 'expense', name: '住房', hint: '房租 · 管理费', icon: 'housing', color: 'indigo', group: 'need' },
   { id: 'utilities', type: 'expense', name: '水电网络', hint: 'TNB · 水费 · Wi-Fi · 手机月费', icon: 'utilities', color: 'yellow', group: 'need' },
-  { id: 'health', type: 'expense', name: '健康', hint: '诊所 · 药 · 保险 · 健身', icon: 'health', color: 'red', group: 'need' },
+  { id: 'health', type: 'expense', name: '健康', hint: '诊所 · 药 · 健身', icon: 'health', color: 'red', group: 'need' },
+  { id: 'insurance', type: 'expense', name: '保险', hint: '医药卡 · 人寿 · 保单', icon: 'shield', color: 'teal', group: 'need' },
   { id: 'family', type: 'expense', name: '家庭人情', hint: '给父母 · 红包 · 礼物', icon: 'family', color: 'pink', group: 'need' },
   { id: 'shopping', type: 'expense', name: '购物', hint: '衣服 · 电子产品 · 网购', icon: 'shopping', color: 'purple', group: 'want' },
   { id: 'social', type: 'expense', name: '娱乐社交', hint: '聚会 · 电影 · 旅行 · 兴趣', icon: 'social', color: 'teal', group: 'want' },
@@ -48,6 +49,9 @@ export const DEFAULT_CATEGORIES = [
 export function categoryMap(categories) {
   const map = new Map();
   for (const c of categories) map.set(c.id, c);
+  // A built-in shipped in an update (保险) is known even where the saved list predates it (an older backup being read);
+  // the store adds it to the list itself on the next launch.
+  for (const c of DEFAULT_CATEGORIES) if (!map.has(c.id)) map.set(c.id, c);
   return map;
 }
 

@@ -13,6 +13,8 @@
 //    studio / small unit RM1,000–2,200, My50 unlimited rail pass RM50.
 // Belanjawanku is a *minimum reasonable* standard, so the "reasonable" ranges
 // below start near it and allow headroom for normal KL prices.
+// Insurance premiums are not in Belanjawanku (its healthcare is clinic and medicine): the app shows them apart (保险,
+// no range) and leaves them out of the living-cost tiers; 健康 is clinic, medicine and fitness.
 
 export const BENCHMARK_SOURCES = [
   { name: 'EPF Belanjawanku 2024/2025', detail: '巴生谷单身：公共交通约 RM1,970／月，有车约 RM2,800／月（含约 RM260 储蓄）' },
@@ -38,7 +40,7 @@ export const DEFAULT_PROFILE = { housing: 'room', transport: 'public' };
 const BASE_RANGES = {
   food: [500, 900],
   groceries: [100, 300],
-  health: [50, 250],
+  health: [0, 200],
   family: [0, 500],
   shopping: [50, 300],
   social: [100, 400],

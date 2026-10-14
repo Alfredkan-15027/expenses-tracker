@@ -18,6 +18,13 @@ export function isBusiness(tx) {
 /** A fixed item that is a business cost (marked 创业, or filed under 创业支出). */
 export const isBusinessItem = (r) => !!r.business || r.categoryId === 'business';
 
+// Insurance premiums are protection, not living cost: they show as their own row (保险) and stay out of the living-cost
+// verdict and the 健康 reference range, so paying the premium never makes a clinic visit look like overspending.
+// Filed under 保险, or under 健康 with 保险 in the note (as records made before 保险 existed are).
+const INSURANCE_NOTE = /保险|保單|保单|insurance|takaful|医药卡|medical card/i;
+/** The category an expense (or a fixed item) is analysed under: an insurance premium filed under 健康 counts as 保险. */
+export const analysisCategory = (t) => (t.categoryId === 'health' && INSURANCE_NOTE.test(t.note || '') ? 'insurance' : t.categoryId);
+
 export function txInMonth(txs, ym) {
   return txs.filter((t) => monthOf(t.date) === ym);
 }
@@ -34,9 +41,10 @@ function summarize(list, categories, extra) {
   for (const t of list) {
     if (t.type === 'income') { income += t.amount; continue; }
     expense += t.amount;
-    byCategory.set(t.categoryId, (byCategory.get(t.categoryId) || 0) + t.amount);
+    const id = analysisCategory(t);
+    byCategory.set(id, (byCategory.get(id) || 0) + t.amount);
     if (isBusiness(t)) { business += t.amount; byGroup.business += t.amount; continue; }
-    const g = cats.get(t.categoryId)?.group;
+    const g = cats.get(id)?.group;
     byGroup[g in byGroup ? g : 'other'] += t.amount;
   }
   const personal = expense - business;
@@ -64,7 +72,8 @@ export function personalByCategory(txs, ymOrPeriod) {
   const out = new Map();
   for (const t of list) {
     if (t.type !== 'expense' || isBusiness(t)) continue;
-    out.set(t.categoryId, (out.get(t.categoryId) || 0) + t.amount);
+    const id = analysisCategory(t);
+    out.set(id, (out.get(id) || 0) + t.amount);
   }
   return out;
 }
@@ -116,7 +125,7 @@ const nearAmount = (a, b) => Math.abs(a - b) <= Math.max(100, Math.round(b * 0.0
 
 // Bills that come once a month or less often (rent, utilities, subscriptions, money for family, insurance, courses).
 // The monthly model spreads them over at least 30 days; a partly tracked period does not pace them (see partialStatus).
-const LUMP_SUM_CATEGORIES = new Set(['housing', 'utilities', 'subscriptions', 'family', 'health', 'learning']);
+const LUMP_SUM_CATEGORIES = new Set(['housing', 'utilities', 'subscriptions', 'family', 'health', 'insurance', 'learning']);
 
 /**
  * What a month of spending looks like right now — the basis for the living-cost verdict of the running
@@ -138,8 +147,10 @@ export function spendingModel({ txs, recurring = [], today, since = '' }) {
   for (const r of active) {
     if (isBusinessItem(r)) { fixedBusiness += r.amount; continue; }
     fixedPersonal += r.amount;
-    fixedBy.set(r.categoryId, (fixedBy.get(r.categoryId) || 0) + r.amount);
+    const id = analysisCategory(r);
+    fixedBy.set(id, (fixedBy.get(id) || 0) + r.amount);
   }
+  const fixedInsurance = fixedBy.get('insurance') || 0;
   // A hand-typed entry stands for a fixed item only in a month the item made no entry of its own, and only one a month
   // (the closest amount): a RM 50 Touch 'n Go reload is not the RM 50 My50 pass every time.
   const made = new Set(txs.filter((t) => t.recurringId).map((t) => `${t.recurringId}|${monthOf(t.date)}`));
@@ -163,7 +174,7 @@ export function spendingModel({ txs, recurring = [], today, since = '' }) {
     return {
       fixedPersonal, fixedBusiness, variable: 0, variableDaily: 0, variableMonthly: 0, personalMonthly: fixedPersonal,
       totalMonthly: fixedPersonal + fixedBusiness, oneOffBusiness: 0, days: 0, from: '', enough: false, steady: false, byCategory: fixedBy,
-      handRent: null,
+      handRent: null, fixedInsurance, insurance: fixedInsurance,
     };
   }
   const floor = addDays(today, -(MODEL_WINDOW_DAYS - 1));
@@ -190,7 +201,8 @@ export function spendingModel({ txs, recurring = [], today, since = '' }) {
       continue;
     }
     variable += t.amount;
-    variableBy.set(t.categoryId, (variableBy.get(t.categoryId) || 0) + t.amount);
+    const id = analysisCategory(t);
+    variableBy.set(id, (variableBy.get(id) || 0) + t.amount);
   }
   let handRent = null;
   if (rentMonths.size) {
@@ -217,6 +229,7 @@ export function spendingModel({ txs, recurring = [], today, since = '' }) {
     personalMonthly: fixedPersonal + variableMonthly,
     totalMonthly: fixedPersonal + fixedBusiness + variableMonthly,
     oneOffBusiness, days, from, enough: days >= MODEL_MIN_DAYS, steady: days >= MODEL_STEADY_DAYS, byCategory, handRent,
+    fixedInsurance, insurance: byCategory.get('insurance') || 0,
   };
 }
 
@@ -571,7 +584,7 @@ export function evaluatePeriod({ txs, period: p, categories, profile, today, rec
   const early = new Map();
   if (!model && isPartial) {
     for (const t of txInPeriod(txs, p)) {
-      if (t.type === 'expense' && !isBusiness(t) && t.date < from) early.set(t.categoryId, (early.get(t.categoryId) || 0) + t.amount);
+      if (t.type === 'expense' && !isBusiness(t) && t.date < from) early.set(analysisCategory(t), (early.get(analysisCategory(t)) || 0) + t.amount);
     }
   }
 
@@ -600,29 +613,34 @@ export function evaluatePeriod({ txs, period: p, categories, profile, today, rec
   }
   rows.sort((a, b) => b.amount - a.amount);
 
+  // The living-cost verdict leaves insurance out (see analysisCategory); `insurance` is shown beside it.
   const personalTotal = summary.personal;
+  const insured = personal.get('insurance') || 0;
   let projected = personalTotal;
   let perMonth;
+  let insurance;
   if (model) {
-    perMonth = model.personalMonthly;
-    projected = perMonth;
+    perMonth = model.personalMonthly - model.insurance;
+    projected = model.personalMonthly;
+    insurance = model.insurance;
   } else {
     // A finished period tracked only in part (tracking began inside it): fixed costs and entries from before tracking
     // began as they are, day-to-day spending of the tracked days extrapolated to the whole period.
     if (isPartial) {
       let asIs = 0;
       for (const t of txInPeriod(txs, p)) {
-        if (t.type === 'expense' && !isBusiness(t) && (t.recurringId || t.categoryId === 'housing' || t.date < from)) asIs += t.amount;
+        if (t.type === 'expense' && !isBusiness(t) && (t.recurringId || t.categoryId === 'housing' || analysisCategory(t) === 'insurance' || t.date < from)) asIs += t.amount;
       }
       projected = Math.round(asIs + (personalTotal - asIs) / elapsed);
     }
-    perMonth = Math.round(projected * f);
+    perMonth = Math.round((projected - insured) * f);
+    insurance = Math.round(insured * f);
   }
   const tier = tierFor(perMonth / RM, tiers);
 
   return {
     ym: p.key, period: p, profile: prof, tiers, tier, tierLabel: TIER_LABELS[tier],
-    personalTotal, projected, perMonth, normalized: !model && f !== 1, isCurrent, isPartial, untracked, elapsed, model,
+    personalTotal, projected, perMonth, insurance, normalized: !model && f !== 1, isCurrent, isPartial, untracked, elapsed, model,
     rows, summary, cats,
   };
 }
@@ -667,8 +685,8 @@ export const runwayShown = (months) => (typeof months === 'number' ? Math.floor(
  * payday all the income is in and little has gone out): what is in so far, + fixed income still due (under pay cycles
  * not a 薪水 / 创业收入 item due inside the pay window: that starts the next cycle), − fixed items still due
  * (expenses, business ones too — the same money — and rent paid by hand), − day-to-day spending at its recent pace
- * (spendingModel) until the period ends. `model`: spendingModel for today; `summary`: periodSummary of the period.
- * Null without income (so far or due).
+ * (spendingModel) for the `days` after today until the period ends. `soFar`: 收入 − 支出 to date. `model`: spendingModel
+ * for today; `summary`: periodSummary of the period. Null without income (so far or due).
  */
 export function periodOutlook({ txs, period: p, settings, today, recurring = [], model, summary }) {
   const cfg = p.kind === 'cycle' ? payCycle(settings) : null;
@@ -677,9 +695,10 @@ export function periodOutlook({ txs, period: p, settings, today, recurring = [],
   const income = summary.income + incomeAhead;
   if (income <= 0) return null;
   const fixedAhead = upcomingRecurring(model.handRent ? [...recurring, model.handRent] : recurring, today, p.end, 'expense', txs);
-  const dayToDay = Math.round(model.variableDaily * daysBetween(today, p.end));
+  const days = daysBetween(today, p.end); // after today
+  const dayToDay = Math.round(model.variableDaily * days);
   const net = summary.net + incomeAhead - fixedAhead - dayToDay;
-  return { income, incomeAhead, fixedAhead, dayToDay, net, rate: net / income, end: p.end };
+  return { income, soFar: summary.net, incomeAhead, fixedAhead, days, dayToDay, net, rate: net / income, end: p.end };
 }
 
 /** Most repeated (category, amount, note) combos from the last 60 days → one-tap quick add. */
@@ -740,12 +759,13 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
   const per30 = ev.normalized ? '（按 30 天换算）' : '';
   const flagged = ev.rows.filter((r) => r.status === 'high' || r.status === 'over' || r.status === 'pace');
   // Categories without a reference range (added by hand) are never flagged — which doesn't make them "in range".
-  const unranged = ev.rows.filter((r) => !r.range && figure(r) > 0).sort((a, b) => figure(b) - figure(a));
+  const unranged = ev.rows.filter((r) => !r.range && r.categoryId !== 'insurance' && figure(r) > 0).sort((a, b) => figure(b) - figure(a));
+  const insuranceText = ev.insurance > 0 ? `（保险 ${formatMoney(ev.insurance, { round: true })}${ev.model ? '／月' : ''}另计）` : '';
   const amountText = ev.model
-    ? `按固定项目加上近 ${ev.model.days} 天的日常开销，每月个人生活费约 ${formatMoney(ev.perMonth, { round: true })}${ev.model.steady ? '' : `（才记了 ${ev.model.days} 天，仅供参考）`}`
+    ? `按固定项目加上近 ${ev.model.days} 天的日常开销，每月个人生活费约 ${formatMoney(ev.perMonth, { round: true })}${insuranceText}${ev.model.steady ? '' : `（才记了 ${ev.model.days} 天，仅供参考）`}`
     : ev.isPartial
-      ? `按记录天数推算，${THIS}个人生活费约 ${formatMoney(ev.perMonth, { round: true })}${per30}`
-      : `${THIS}个人生活费 ${formatMoney(ev.perMonth, { round: true })}${per30}`;
+      ? `按记录天数推算，${THIS}个人生活费约 ${formatMoney(ev.perMonth, { round: true })}${per30}${insuranceText}`
+      : `${THIS}个人生活费 ${formatMoney(ev.perMonth, { round: true })}${per30}${insuranceText}`;
   const verdict = {
     lean: { tone: 'good', title: '生活费很精简', extra: '低于 EPF 合理生活标准。省钱很好，但别省到影响吃饭、健康和工作效率。' },
     ok: { tone: 'good', title: '生活费在合理范围', extra: '符合吉隆坡 24 岁单身创业者的合理水平。' },
@@ -753,7 +773,7 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
       ? '超过合理上限，建议先从下面标黄的类别开始收一收。'
       : unranged.length
         ? `有参考区间的类别都还在区间内，超出的部分主要来自没有参考区间的${name(unranged[0].categoryId)}（${figureText(unranged[0])}），先看看这一项能不能减少。`
-        : '每个类别都还在参考区间内，是加起来超过了上限，可以先检视金额最大的固定开销（房租、保险、订阅）。' },
+        : '每个类别都还在参考区间内，是加起来超过了上限，可以先检视金额最大的固定开销（房租、订阅）。' },
     over: { tone: 'bad', title: '生活费明显过高', extra: `已超过 RM ${highMax.toLocaleString('en-MY')}，对创业期来说压力很大，建议马上检视。` },
   }[ev.tier];
   out.push({
