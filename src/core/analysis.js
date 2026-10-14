@@ -464,15 +464,19 @@ export function trend(txs, endYm, n = 6) {
 // Pay cycles are 28–36 days long; compare them per 30 days so a long cycle doesn't look like overspending.
 const perMonthFactor = (p) => (p.kind === 'cycle' ? 30 / p.days : 1);
 
+export const MIN_COMPARE_DAYS = 7; // a running period is compared once it is this many days old: a day or two says nothing
+
 /**
- * Category comparison between a period and the one before it.
- * While `p` is still running (today inside it), both are compared over the same first N days — rent and
- * other fixed costs land early, so a whole previous period against a few days of this one is meaningless.
- * N is at most the previous period's length: nothing is scaled up (that would count its rent more than once).
- * Finished pay cycles are compared per 30 days. The previous period must be fully tracked.
+ * Personal spending per category, a period against the one before it. Business spending is counted apart, as
+ * everywhere in the analysis (one debt payment would swamp the rest).
+ * While `p` is still running (today inside it), both are compared over the same first N days — a whole previous
+ * period against a few days of this one is meaningless — once N reaches MIN_COMPARE_DAYS (`early` before that: not
+ * comparable). N is at most the previous period's length: nothing is scaled up. Fixed items (made by one, or paid
+ * by hand: see paidByHand) are left out then (`dayToDay`): they land on different days of each period, so the
+ * first days would hold this period's rent against none of the last one's. Finished periods are compared whole,
+ * fixed items included; pay cycles per 30 days. The previous period must be fully tracked.
  */
-export function comparePeriods(txs, p, prev, categories, since = '', today = '') {
-  const comparable = !since || prev.start >= since;
+export function comparePeriods(txs, p, prev, categories, since = '', today = '', recurring = []) {
   const running = !!today && today >= p.start && today < p.end;
   let pa = p;
   let pb = prev;
@@ -486,8 +490,12 @@ export function comparePeriods(txs, p, prev, categories, since = '', today = '')
     fa = 1;
     fb = 1;
   }
-  const cur = periodSummary(txs, pa, categories);
-  const old = periodSummary(txs, pb, categories);
+  const early = running && sameDays < MIN_COMPARE_DAYS;
+  const comparable = (!since || prev.start >= since) && !early;
+  const handPaid = running ? new Set([...paidByHand(txs, recurring).values()].map((t) => t.id)) : null;
+  const counted = txs.filter((t) => t.type !== 'expense' || (!isBusiness(t) && !(running && (t.recurringId || handPaid.has(t.id)))));
+  const cur = periodSummary(counted, pa, categories);
+  const old = periodSummary(counted, pb, categories);
   const ids = new Set([...cur.byCategory.keys(), ...old.byCategory.keys()]);
   const rows = [...ids].map((id) => {
     const a = Math.round((cur.byCategory.get(id) || 0) * fa);
@@ -498,6 +506,7 @@ export function comparePeriods(txs, p, prev, categories, since = '', today = '')
   const b = Math.round(old.expense * fb);
   return {
     ym: p.key, prevYm: prev.key, period: p, prevPeriod: prev, current: cur, previous: old, rows, comparable, sameDays,
+    early, dayToDay: running,
     normalized: fa !== 1 || fb !== 1,
     delta: a - b,
     ratio: b > 0 ? (a - b) / b : null,
@@ -505,8 +514,8 @@ export function comparePeriods(txs, p, prev, categories, since = '', today = '')
 }
 
 /** Category comparison between month ym and the previous month. */
-export function compareMonths(txs, ym, categories, since = '', today = '') {
-  return comparePeriods(txs, monthPeriod(ym), monthPeriod(addMonths(ym, -1)), categories, since, today);
+export function compareMonths(txs, ym, categories, since = '', today = '', recurring = []) {
+  return comparePeriods(txs, monthPeriod(ym), monthPeriod(addMonths(ym, -1)), categories, since, today, recurring);
 }
 
 function tierFor(amountRM, tiers) {
@@ -650,6 +659,29 @@ export function runway({ txs, currentSavings, today, since = '', recurring = [],
   return { ...base, months: Math.max(0, currentSavings) / m.totalMonthly, avg: m.totalMonthly, basis: `固定项目 + 近 ${m.days} 天的日常开销` };
 }
 
+/** Runway months as shown: rounded down to the tenth, so 5.96 reads "5.9", short of the 6-month line. */
+export const runwayShown = (months) => (typeof months === 'number' ? Math.floor(months * 10 + 1e-9) / 10 : months);
+
+/**
+ * Where the running period is heading, so that its 结余 and 储蓄率 are not judged by the first few days (right after
+ * payday all the income is in and little has gone out): what is in so far, + fixed income still due (under pay cycles
+ * not a 薪水 / 创业收入 item due inside the pay window: that starts the next cycle), − fixed items still due
+ * (expenses, business ones too — the same money — and rent paid by hand), − day-to-day spending at its recent pace
+ * (spendingModel) until the period ends. `model`: spendingModel for today; `summary`: periodSummary of the period.
+ * Null without income (so far or due).
+ */
+export function periodOutlook({ txs, period: p, settings, today, recurring = [], model, summary }) {
+  const cfg = p.kind === 'cycle' ? payCycle(settings) : null;
+  const startsCycle = (r) => !!cfg && CYCLE_INCOME_CATEGORIES.includes(r.categoryId) && r.day >= cfg.from && r.day <= cfg.to;
+  const incomeAhead = upcomingRecurring(recurring.filter((r) => !startsCycle(r)), today, p.end, 'income');
+  const income = summary.income + incomeAhead;
+  if (income <= 0) return null;
+  const fixedAhead = upcomingRecurring(model.handRent ? [...recurring, model.handRent] : recurring, today, p.end, 'expense', txs);
+  const dayToDay = Math.round(model.variableDaily * daysBetween(today, p.end));
+  const net = summary.net + incomeAhead - fixedAhead - dayToDay;
+  return { income, incomeAhead, fixedAhead, dayToDay, net, rate: net / income, end: p.end };
+}
+
 /** Most repeated (category, amount, note) combos from the last 60 days → one-tap quick add. */
 export function quickPicks(txs, today, limit = 6) {
   const cutoffISO = addDays(today, -60);
@@ -671,13 +703,15 @@ export function quickPicks(txs, today, limit = 6) {
 
 /**
  * Plain-language insights for a month, most important first.
- * Each: { tone: 'good'|'warn'|'bad'|'info', icon, title, body }
+ * Each: { id, tone: 'good'|'warn'|'bad'|'info', icon, title, figure, body } — `id` stays the same for the same kind of
+ * insight (the screen remembers which ones are unfolded), `figure` is the short number shown beside the title ('' for
+ * none), `body` the explanation behind it.
  */
 export function buildInsights({ txs, ym, period, categories, profile, settings, today, recurring = [] }) {
   const p = period || monthPeriod(ym);
   const since = trackingStart(settings, txs);
   const ev = evaluatePeriod({ txs, period: p, categories, profile, today, recurring, startDate: since });
-  const cmp = comparePeriods(txs, p, prevPeriod(p, { txs, settings, today }), categories, since, today);
+  const cmp = comparePeriods(txs, p, prevPeriod(p, { txs, settings, today }), categories, since, today, recurring);
   const cycle = p.kind === 'cycle';
   const THIS = cycle ? '本期' : '本月';
   const LAST = cycle ? '上一期' : '上个月';
@@ -692,12 +726,12 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
 
   if (ev.untracked) {
     return [{
-      tone: 'info', icon: 'calendar', title: `${cycle ? '这一期' : '这个月'}在开始记账之前`,
+      id: 'untracked', tone: 'info', icon: 'calendar', title: `${cycle ? '这一期' : '这个月'}在开始记账之前`, figure: '',
       body: `从 ${dayLabel(since, today)}才开始记账，这段时间只有零星几笔记录（例如固定项目自动记上的），所以这里不评估生活费和储蓄率。`,
     }];
   }
   if (s.count === 0) {
-    return [{ tone: 'info', icon: 'sparkles', title: cycle ? '这一期还没有记录' : '这个月还没有记录', body: `每天花几秒记一笔，${cycle ? '这一期结束时' : '月底'}这里就会告诉你钱都去了哪里。` }];
+    return [{ id: 'empty', tone: 'info', icon: 'sparkles', title: cycle ? '这一期还没有记录' : '这个月还没有记录', figure: '', body: `每天花几秒记一笔，${cycle ? '这一期结束时' : '月底'}这里就会告诉你钱都去了哪里。` }];
   }
 
   // 1. Overall verdict vs KL reference
@@ -722,43 +756,43 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
         : '每个类别都还在参考区间内，是加起来超过了上限，可以先检视金额最大的固定开销（房租、保险、订阅）。' },
     over: { tone: 'bad', title: '生活费明显过高', extra: `已超过 RM ${highMax.toLocaleString('en-MY')}，对创业期来说压力很大，建议马上检视。` },
   }[ev.tier];
-  out.push({ tone: verdict.tone, icon: 'target', title: verdict.title, body: `${amountText}。吉隆坡同龄创业者合理区间 ${rangeText}。${verdict.extra}` });
+  out.push({
+    id: 'verdict', tone: verdict.tone, icon: 'target', title: verdict.title,
+    figure: `${formatMoney(ev.perMonth, { round: true })}${ev.model ? '／月' : ev.normalized ? '／30 天' : ''}`,
+    body: `${amountText}。吉隆坡同龄创业者合理区间 ${rangeText}。${verdict.extra}`,
+  });
 
-  // 2. Savings rate vs target
-  // While the period runs, judge the savings by where it is heading, not by the first few days: still-to-come fixed
-  // items (expenses — rent paid by hand too — and income) and day-to-day spending at its recent pace until the period
-  // ends. Under pay cycles a 薪水 / 创业收入 item due inside the pay window starts the next cycle: not this one's income.
-  const cfg = cycle ? payCycle(settings) : null;
-  const startsCycle = (r) => !!cfg && CYCLE_INCOME_CATEGORIES.includes(r.categoryId) && r.day >= cfg.from && r.day <= cfg.to;
-  const incomeAhead = ev.model ? upcomingRecurring(recurring.filter((r) => !startsCycle(r)), today, p.end, 'income') : 0;
-  const income = s.income + incomeAhead;
+  // 2. Savings rate vs target. While the period runs it is judged by where it is heading (periodOutlook), not by
+  // the first few days.
+  const outlook = ev.model ? periodOutlook({ txs, period: p, settings, today, recurring, model: ev.model, summary: s }) : null;
+  const income = outlook ? outlook.income : s.income;
   if (income > 0) {
     let net = s.net;
     let body;
-    if (ev.model) {
-      const fixedAhead = upcomingRecurring(ev.model.handRent ? [...recurring, ev.model.handRent] : recurring, today, p.end, 'expense', txs);
-      net = s.net + incomeAhead - fixedAhead - Math.round(ev.model.variableDaily * daysBetween(today, p.end));
-      body = `${THIS}收入 ${formatMoney(s.income, { round: true })}${incomeAhead ? `，另有固定收入 ${formatMoney(incomeAhead, { round: true })} 还没到` : ''}，目前已花 ${formatMoney(s.expense, { round: true })}。按目前速度，到 ${dayLabel(p.end, today)}预计结余 ${formatMoney(net, { round: true })}，储蓄率约 ${formatPercent(net / income)}。`;
+    if (outlook) {
+      net = outlook.net;
+      body = `${THIS}收入 ${formatMoney(s.income, { round: true })}${outlook.incomeAhead ? `，另有固定收入 ${formatMoney(outlook.incomeAhead, { round: true })} 还没到` : ''}，目前已花 ${formatMoney(s.expense, { round: true })}。按目前速度，到 ${dayLabel(p.end, today)}预计结余 ${formatMoney(net, { round: true })}，储蓄率约 ${formatPercent(net / income)}。`;
     } else {
-      // 结余 as the 分析 stat grid shows it: 收入 − 支出 in whole ringgit.
+      // 结余 as the 分析 overview shows it: 收入 − 支出 in whole ringgit.
       body = `收入 ${formatMoney(s.income, { round: true })}，结余 ${formatMoney(roundedRest(s.income, s.expense), { round: true })}，储蓄率 ${formatPercent(net / s.income)}。`;
     }
     const rate = net / income;
     const target = settings.savingsTarget || 0;
-    let tone = 'good', title = ev.model ? '预计储蓄率健康' : '储蓄率健康';
-    if (rate < 0) { tone = 'bad'; title = ev.model ? `${THIS}预计入不敷出` : `${THIS}入不敷出`; }
-    else if (rate < SAVINGS_RATE_OK) { tone = 'warn'; title = ev.model ? '预计储蓄率偏低' : '储蓄率偏低'; }
-    else if (rate < SAVINGS_RATE_GOOD) { tone = 'info'; title = ev.model ? '预计储蓄率还可以' : '储蓄率还可以'; }
+    let tone = 'good', title = outlook ? '预计储蓄率健康' : '储蓄率健康';
+    if (rate < 0) { tone = 'bad'; title = outlook ? `${THIS}预计入不敷出` : `${THIS}入不敷出`; }
+    else if (rate < SAVINGS_RATE_OK) { tone = 'warn'; title = outlook ? '预计储蓄率偏低' : '储蓄率偏低'; }
+    else if (rate < SAVINGS_RATE_GOOD) { tone = 'info'; title = outlook ? '预计储蓄率还可以' : '储蓄率还可以'; }
     body += rate >= SAVINGS_RATE_GOOD ? '创业期能存下 20% 以上很不容易，继续保持。' : '创业期建议至少存下收入的 20%。';
     const EACH = cycle ? '每期' : '每月';
     if (target > 0) {
+      // Short of the target by all of it plus whatever the period runs short.
       body += net >= target
-        ? ` ${ev.model ? '预计可以达成' : '已达成'}${EACH}存款目标 ${formatMoney(target, { round: true })}。`
-        : ` ${ev.model ? '预计' : ''}距离${EACH}存款目标还差 ${formatMoney(target - Math.max(0, net), { round: true })}。`;
+        ? ` ${outlook ? '预计可以达成' : '已达成'}${EACH}存款目标 ${formatMoney(target, { round: true })}。`
+        : ` ${outlook ? '预计' : ''}距离${EACH}存款目标 ${formatMoney(target, { round: true })} 还差 ${formatMoney(target - net, { round: true })}。`;
     }
-    out.push({ tone, icon: 'savings', title, body });
+    out.push({ id: 'savings', tone, icon: 'savings', title, figure: formatPercent(rate), body });
   } else if (ev.isCurrent) {
-    out.push({ tone: 'info', icon: 'salary', title: `还没记录${THIS}收入`, body: '记下收入后，才能算出储蓄率和存款目标的进度。' });
+    out.push({ id: 'savings', tone: 'info', icon: 'salary', title: `还没记录${THIS}收入`, figure: '', body: '记下收入后，才能算出储蓄率和存款目标的进度。' });
   }
 
   // 3. Categories above range
@@ -770,29 +804,33 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
       ? `照这个速度，${cycle ? '这一期结束时' : '月底'}会超过参考上限 RM ${hi}`
       : `超过参考区间 RM ${lo} – ${hi}${basis}`;
     out.push({
-      tone: r.status === 'over' ? 'bad' : 'warn', icon: cats.get(r.categoryId)?.icon || 'other',
-      title: `${name(r.categoryId)} ${figureText(r)}`,
+      id: `cat-${r.categoryId}`, tone: r.status === 'over' ? 'bad' : 'warn', icon: cats.get(r.categoryId)?.icon || 'other',
+      title: `${name(r.categoryId)}${r.status === 'pace' ? '快超出了' : r.status === 'over' ? '过高' : '偏高'}`,
+      figure: figureText(r),
       body: `${over}。${categoryTip(r.categoryId)}`,
     });
   }
 
-  // 4. Month-over-month change. Signs follow the rounded figures shown: under RM 0.50 is no change.
+  // 4. Change against the period before (personal spending, see comparePeriods). Signs follow the rounded figures
+  // shown: under RM 0.50 is no change.
   if (cmp.comparable && cmp.previous.expense > 0) {
     const flat = Math.round(Math.abs(cmp.delta) / RM) === 0;
     const up = !flat && cmp.delta > 0;
     const biggest = cmp.rows[0];
     const diff = `${up ? '多' : '少'} ${formatMoney(Math.abs(cmp.delta), { round: true })}`;
     let body = cmp.sameDays
-      ? `${THIS}前 ${cmp.sameDays} 天的总支出${flat ? `和${LAST}同期持平` : `比${LAST}同期${diff}`}`
-      : `总支出${flat ? `和${LAST}持平` : `比${LAST}${diff}`}${cmp.normalized ? '（按 30 天换算）' : ''}`;
+      ? `${THIS}前 ${cmp.sameDays} 天的日常开销${flat ? `和${LAST}同期持平` : `比${LAST}同期${diff}`}`
+      : `个人支出${flat ? `和${LAST}持平` : `比${LAST}${diff}`}${cmp.normalized ? '（按 30 天换算）' : ''}`;
     if (cmp.ratio !== null && !flat) body += `（${formatPercent(cmp.ratio, 0, { sign: true })}）`;
     if (biggest && Math.abs(biggest.delta) >= 50 * RM) {
       body += `，变化最大的是${name(biggest.categoryId)}（${biggest.delta > 0 ? '+' : '−'}${formatMoney(Math.abs(biggest.delta), { round: true })}）`;
     }
-    body += ev.isCurrent ? `。${THIS}还没结束，仅供参考。` : '。';
+    body += cmp.dayToDay ? `。固定项目和创业投入不算在内；${THIS}还没结束，仅供参考。` : '。创业投入不算在内。';
     out.push({
-      tone: up && !ev.isCurrent && cmp.ratio > 0.15 ? 'warn' : 'info', icon: flat ? 'check' : up ? 'trendUp' : 'trendDown',
-      title: cycle ? '与上一期相比' : '与上月相比', body,
+      id: 'compare', tone: up && !ev.isCurrent && cmp.ratio > 0.15 ? 'warn' : 'info', icon: flat ? 'check' : up ? 'trendUp' : 'trendDown',
+      title: cycle ? '与上一期相比' : '与上月相比',
+      figure: flat ? '持平' : formatMoney(cmp.delta, { round: true, sign: true }),
+      body,
     });
   }
 
@@ -814,9 +852,9 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
     const needs = shares.need / base;
     const est = ev.model ? '按每月估算，' : '';
     if (wants > WANTS_SHARE_MAX + 0.1) {
-      out.push({ tone: 'warn', icon: 'shopping', title: '享受型开销占比偏高', body: `${est}购物、娱乐、订阅${ev.model ? '约' : ''}占个人开销 ${formatPercent(wants)}，建议控制在 ${formatPercent(WANTS_SHARE_MAX)} 以内。` });
+      out.push({ id: 'balance', tone: 'warn', icon: 'shopping', title: '享受型开销占比偏高', figure: formatPercent(wants), body: `${est}购物、娱乐、订阅${ev.model ? '约' : ''}占个人开销 ${formatPercent(wants)}，建议控制在 ${formatPercent(WANTS_SHARE_MAX)} 以内。` });
     } else if (needs > 0 && needs <= NEEDS_SHARE_MAX && wants <= WANTS_SHARE_MAX) {
-      out.push({ tone: 'good', icon: 'check', title: '开销结构平衡', body: `${est}必要开销 ${formatPercent(needs)}，享受型开销 ${formatPercent(wants)}，比例健康。` });
+      out.push({ id: 'balance', tone: 'good', icon: 'check', title: '开销结构平衡', figure: '', body: `${est}必要开销 ${formatPercent(needs)}，享受型开销 ${formatPercent(wants)}，比例健康。` });
     }
   }
 
@@ -824,7 +862,7 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
   if (s.business > 0) {
     const share = s.expense > 0 ? s.business / s.expense : 0;
     out.push({
-      tone: 'info', icon: 'business', title: `创业投入 ${formatMoney(s.business, { round: true })}`,
+      id: 'business', tone: 'info', icon: 'business', title: '创业投入', figure: formatMoney(s.business, { round: true }),
       body: `占${THIS}总支出 ${formatPercent(share)}。这部分不算进生活费评估，${settings.budgetIncludesBusiness
         ? `但钱确实花出去了，所以「今天还能花」会把它算进${THIS}预算（「设置 → 每月计划」可以关掉）`
         : '也不占「今天还能花」（「设置 → 每月计划」可以改）'}；记得保留单据，公司有钱时可以报销或作为股东贷款记录。`,
@@ -834,7 +872,7 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
   // 7. Uncategorised
   const other = personalByCategory(txs, p).get('other') || 0;
   if (personal > 0 && other / personal > 0.1 && other > 100 * RM) {
-    out.push({ tone: 'info', icon: 'other', title: '「其他」有点多', body: `有 ${formatMoney(other, { round: true })} 记在「其他」。分到具体类别，分析会更准确。` });
+    out.push({ id: 'other', tone: 'info', icon: 'other', title: '「其他」有点多', figure: formatMoney(other, { round: true }), body: `有 ${formatMoney(other, { round: true })} 记在「其他」。分到具体类别，分析会更准确。` });
   }
 
   return out;
