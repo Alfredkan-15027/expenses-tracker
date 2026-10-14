@@ -45,6 +45,15 @@ export function money(cents, { sign = false, cls = '' } = {}) {
   return html`<span class="money ${cls}"><span class="money__sign">${p.sign || plus}</span><span class="money__cur">${CURRENCY}</span><span class="money__int">${p.int}</span><span class="money__dec">.${p.dec}</span></span>`;
 }
 
+/**
+ * Short facts joined by " · " that wrap only between facts: never inside one ("今天对 / 账"), and a line never starts
+ * with the dot. Empty parts are dropped.
+ */
+export function facts(...parts) {
+  const list = parts.flat().filter((p) => p !== '' && p !== null && p !== undefined && p !== false);
+  return html`${list.map((p, i) => html`<span class="fact">${p}${i < list.length - 1 ? ' ·' : ''}</span>${i < list.length - 1 ? ' ' : ''}`)}`;
+}
+
 export function mount(el, content) {
   el.innerHTML = toHTML(content);
 }
