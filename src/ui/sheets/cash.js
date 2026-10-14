@@ -10,7 +10,7 @@ import { moneyField, readMoney } from './plan.js';
 
 /** The money on hand now, carried forward by the records (null when it was never filled in). */
 export function currentCash(today = todayISO()) {
-  return cashOnHand({ txs: state.transactions, settings: state.settings, flows: state.investFlows, today });
+  return cashOnHand({ txs: state.transactions, settings: state.settings, flows: state.investFlows, today, recurring: state.recurring });
 }
 
 export function openCashSheet() {
