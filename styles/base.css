@@ -97,6 +97,11 @@ img { display: block; max-width: 100%; }
 .section__title--day span { font: var(--text-subhead); color: var(--label-2); }
 .section__hint { font: var(--text-footnote); color: var(--label-2); font-weight: 400; }
 .section__meta { font: var(--text-subhead); color: var(--label-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* A title beside a figure keeps its words (and its ⓘ) on one line; the figure wraps between its facts instead. */
+.section__header .section__title { flex: none; flex-wrap: nowrap; white-space: nowrap; }
+.section__header .section__meta { min-width: 0; white-space: normal; text-align: right; }
+/* One fact of a "a · b · c" line (facts() in html.js): lines break between facts, never inside one. */
+.fact { white-space: nowrap; }
 .section__meta--block { padding: 0 4px; }
 .section__meta.is-up { color: var(--warn-ink); }
 .section__meta.is-down { color: var(--good-ink); }

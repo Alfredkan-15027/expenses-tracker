@@ -37,6 +37,7 @@
 .rings__item[data-tone="over"]::before { background: var(--ring-over); }
 .rings__item[data-tone="save"]::before { background: var(--ring-save); }
 .rings__label { font: var(--text-footnote); font-weight: 600; color: var(--label-2); }
+.rings__label .info-btn { width: 20px; height: 20px; font-size: 13px; margin-left: 2px; }
 .rings__value { font-family: var(--font-rounded); font-size: 21px; line-height: 26px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rings__sub { font: var(--text-caption); color: var(--label-2); }
 
@@ -137,6 +138,7 @@ button.bento__tile:active { transform: scale(0.97); }
 .bento__value--hero .money__dec { font-size: 0.62em; }
 .bento__value.is-negative, .bento__value .is-negative { color: var(--bad-ink); }
 .bento__sub { font: var(--text-caption); color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bento__body .bento__sub { white-space: normal; } /* the wide tile: wraps between facts */
 .bento__flow { display: flex; flex-direction: column; gap: 4px; font: var(--text-footnote); color: var(--label-2); }
 .bento__flow span { display: flex; justify-content: space-between; gap: 8px; }
 .bento__flow strong { color: var(--label); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
