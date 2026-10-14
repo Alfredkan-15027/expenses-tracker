@@ -151,7 +151,8 @@ test('a finished pay cycle shows the 30-day figure its category badge was judged
   assert.equal(food.per30, Math.round(RM(800) * 30 / 26));
   const ins = buildInsights({ txs, period: p, categories: DEFAULT_CATEGORIES, profile: {}, settings, today: '2026-03-20' });
   const flag = ins.find((i) => i.icon === 'food');
-  assert.match(flag.title, /餐饮 RM 923／30 天/);
+  assert.equal(flag.title, '餐饮偏高');
+  assert.equal(flag.figure, 'RM 923／30 天');
   assert.match(flag.body, /按 30 天换算/);
   const page = text(render({ txs, settings }, '2026-03-20', '2026-01-20'));
   assert.match(page, /按 30 天约 RM 923/);
@@ -212,14 +213,15 @@ test('a change under RM 0.50 is no change: no "−RM 0", no "−0%", and the ins
   const settings = { startDate: '2026-08-01' };
   const ins = buildInsights({ txs, ym: '2026-09', categories: DEFAULT_CATEGORIES, profile: {}, settings, today: '2026-10-05' });
   const mom = ins.find((i) => i.title === '与上月相比');
-  assert.match(mom.body, /总支出和上个月持平/);
+  assert.match(mom.body, /个人支出和上个月持平/);
   assert.doesNotMatch(mom.body, /−0%|-0%|少 RM 0/);
   const page = text(render({ txs, settings }, '2026-10-05', '2026-09'));
   assert.doesNotMatch(page, /−RM 0|-0%|餐饮 −0/);
-  // Exactly the same on the first day of a running month
+  // Exactly the same over the first week of a running month (a running month is compared from its 7th day on)
   const same = [tx('2026-09-01', RM(1500), 'housing'), tx('2026-10-01', RM(1500), 'housing')];
-  const first = buildInsights({ txs: same, ym: '2026-10', categories: DEFAULT_CATEGORIES, profile: {}, settings, today: '2026-10-01' });
-  assert.match(first.find((i) => i.title === '与上月相比').body, /前 1 天的总支出和上个月同期持平/);
+  const week = buildInsights({ txs: same, ym: '2026-10', categories: DEFAULT_CATEGORIES, profile: {}, settings, today: '2026-10-07' });
+  assert.match(week.find((i) => i.title === '与上月相比').body, /前 7 天的日常开销和上个月同期持平/);
+  assert.equal(week.find((i) => i.title === '与上月相比').figure, '持平');
   assert.doesNotMatch(String(divergeList([{ label: '交通', delta: -30, current: 0, previous: 30 }])), /−0/);
 });
 
@@ -294,7 +296,7 @@ test('the benchmark note and the runway parts add up to the total shown', () => 
   const page = text(render({ txs, settings: { startDate: '2026-09-11', currentSavings: RM(9000) }, recurring }, '2026-10-10'));
   assert.match(page, /RM 970/);
   assert.match(page, /个人固定项目 RM 850 \+ 日常开销 RM 120/);
-  assert.match(page, /（固定项目 RM 850 \+ 日常开销 RM 120，/); // the runway card
+  assert.match(page, /每月开销 RM 970 = 固定项目 RM 850 \+ 日常开销 RM 120（/); // the runway card
   assert.doesNotMatch(page, /RM 121/);
 });
 
@@ -302,16 +304,16 @@ test('runway shows the figure its verdict is judged on: 5.96 months is 5.9, shor
   const txs = daily('2026-09-11', '2026-10-10', RM(100)); // RM 3,000 a month
   const show = (savings) => {
     const html = render({ txs, settings: { startDate: '2026-09-11', currentSavings: savings } }, '2026-10-10');
-    return { tone: html.match(/card--runway" data-tone="(\w+)"/)[1], page: text(html.slice(html.indexOf('个人 Runway'))) };
+    return { tone: html.match(/card--runway" data-tone="(\w+)"/)[1], page: text(html.slice(html.indexOf('个人 Runway'))), shown: html.match(/runway__value">([^<]+)</)[1] };
   };
   const short = show(RM(17890));
-  assert.match(short.page, /5\.9 个月/);
+  assert.equal(short.shown, '5.9');
   assert.equal(short.tone, 'warn');
   const full = show(RM(18000));
-  assert.match(full.page, /6\.0 个月/);
+  assert.equal(full.shown, '6.0');
   assert.match(full.page, /已达到 6 个月的安全线/);
   assert.equal(full.tone, 'good');
-  assert.equal(show(RM(8890)).page.match(/([\d.]+) 个月/)[1], '2.9');
+  assert.equal(show(RM(8890)).shown, '2.9');
 });
 
 test('trend bars are each held against their own period\'s budget', () => {

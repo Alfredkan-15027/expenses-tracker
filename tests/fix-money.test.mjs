@@ -158,7 +158,7 @@ test('分析: 收入 − 支出 = 结余, and the fixed + day-to-day lines add u
   const total = rm(out.match(/每月预计个人生活费 RM ([\d,]+)/)[1]);
   const bench = out.match(/= 个人固定项目 RM ([\d,]+) \+ 日常开销 RM ([\d,]+)/);
   assert.equal(rm(bench[1]) + rm(bench[2]), total);
-  const rw = out.match(/÷ 每月开销 RM ([\d,]+) （固定项目 RM ([\d,]+) \+ 日常开销 RM ([\d,]+)/);
+  const rw = out.match(/每月开销 RM ([\d,]+) = 固定项目 RM ([\d,]+) \+ 日常开销 RM ([\d,]+)/);
   assert.equal(rm(rw[2]) + rm(rw[3]), rm(rw[1]));
   // The day-to-day figure reads the same in both places.
   assert.equal(bench[2], rw[3]);
