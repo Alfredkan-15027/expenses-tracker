@@ -4,8 +4,9 @@ import { periodSwitcher, statusBadge } from './shared.js';
 import { stackBar, tierGauge, trendChart, divergeList, progress } from '../charts.js';
 import {
   periodSummary, evaluatePeriod, comparePeriods, trendPeriods, runway, buildInsights, periodBudget, trackingStart,
-  cashOnHand, personalByCategory,
+  cashOnHand, personalByCategory, periodOutlook, runwayShown,
 } from '../../core/analysis.js';
+import { infoButton, infoPanel, infoAttrs } from '../info.js';
 import { overview } from './overview.js';
 import { openCashSheet } from '../sheets/cash.js';
 import { periodFor, periodByKey, prevPeriod, nextPeriod, periodsEndingWith } from '../../core/periods.js';
@@ -41,7 +42,9 @@ const screen = {
     const since = trackingStart(settings, txs);
     const ev = evaluatePeriod({ txs, period: p, categories, profile: settings.profile, today, recurring: state.recurring, startDate: since });
     const prevP = prevPeriod(p, ctx);
-    const cmp = comparePeriods(txs, p, prevP, categories, since, today);
+    const cmp = comparePeriods(txs, p, prevP, categories, since, today, state.recurring);
+    // The running period's 储蓄率 is where it is heading, like the insight (see periodOutlook).
+    const outlook = ev.model ? periodOutlook({ txs, period: p, settings, today, recurring: state.recurring, model: ev.model, summary: s }) : null;
     const insights = buildInsights({ txs, period: p, categories, profile: settings.profile, settings, today, recurring: state.recurring });
     // Periods that ended before tracking started hold nothing (or only stray entries): leave them out.
     const shown = periodsEndingWith(p, 6, ctx).filter((q) => !since || q.end >= since || q.key === p.key);
@@ -76,10 +79,19 @@ const screen = {
       </header>
       ${periodSwitcher(p, { prevKey: prevP.key, nextKey: nextP.key, currentKey: currentP.key, canNext: !isCurrentP && nextP.start <= today })}
 
-      ${overview({ s, isCurrent: isCurrentP, untracked: ev.untracked, personal: personalByCategory(txs, p), cat, cash: isCurrentP ? cash : null, rw, today })}
+      ${overview({ s, isCurrent: isCurrentP, untracked: ev.untracked, personal: personalByCategory(txs, p), cat, cash: isCurrentP ? cash : null, rw, today, outlook })}
 
       ${ev.untracked ? '' : html`<section class="section">
-        <h2 class="section__title">吉隆坡 24 岁创业者对照</h2>
+        <h2 class="section__title">吉隆坡 24 岁创业者对照 ${infoButton('bench')}</h2>
+        ${infoPanel('bench', html`<p>
+            ${ev.model
+              ? `每月预计个人生活费 = 个人固定项目 ${formatMoney(fixedShown, { round: true })} + 日常开销 ${formatMoney(dailyShown, { round: true })}（按近 ${ev.model.days} 天的平均速度）。`
+              : ''}
+            不含创业投入${s.business ? `（${THIS} ${formatMoney(s.business, { round: true })}）` : ''}。
+            ${!ev.model && ev.isPartial ? `这一期只记录了 ${Math.round(ev.elapsed * 100)}% 的天数，日常开销已推算到${cycle ? '整期' : '整月'}。` : ''}
+            ${ev.normalized ? `本期共 ${p.days} 天（${p.label}），已换算成 30 天和每月参考值比较。` : ''}
+          </p>
+          <button type="button" class="link" data-sources>参考资料</button>`)}
         <div class="card card--benchmark" data-tier="${ev.tier}">
           <div class="benchmark__head">
             ${statusBadge(ev.tier)}
@@ -93,15 +105,6 @@ const screen = {
           <div class="gauge__legend">
             <span data-tone="lean">精简</span><span data-tone="ok">合理</span><span data-tone="high">偏高</span><span data-tone="over">过高</span>
           </div>
-          <p class="benchmark__note">
-            ${ev.model
-              ? `= 个人固定项目 ${formatMoney(fixedShown, { round: true })} + 日常开销 ${formatMoney(dailyShown, { round: true })}（按近 ${ev.model.days} 天的平均速度）。`
-              : ''}
-            不含创业投入${s.business ? `（${THIS} ${formatMoney(s.business, { round: true })}）` : ''}。
-            ${!ev.model && ev.isPartial ? `这一期只记录了 ${Math.round(ev.elapsed * 100)}% 的天数，日常开销已推算到${cycle ? '整期' : '整月'}。` : ''}
-            ${ev.normalized ? `本期共 ${p.days} 天（${p.label}），已换算成 30 天和每月参考值比较。` : ''}
-            <button type="button" class="link" data-sources>参考资料</button>
-          </p>
         </div>
       </section>`}
 
@@ -109,15 +112,21 @@ const screen = {
         <h2 class="section__title">重点</h2>
         <ul class="insights">
           ${insights.map((i) => html`<li class="insight" data-tone="${i.tone}">
-            <span class="insight__icon">${icon(i.icon)}</span>
-            <div class="insight__text"><strong>${i.title}</strong><p>${i.body}</p></div>
+            <button type="button" class="insight__head" ${infoAttrs(`insight-${i.id}`)}>
+              <span class="insight__icon">${icon(i.icon)}</span>
+              <strong class="insight__title">${i.title}</strong>
+              ${i.figure ? html`<span class="insight__figure">${i.figure}</span>` : ''}
+              ${icon('chevron-down', 'insight__chevron')}
+            </button>
+            ${infoPanel(`insight-${i.id}`, html`<p>${i.body}</p>`, 'insight__body')}
           </li>`)}
         </ul>
       </section>
 
       ${listed.length || s.business ? html`
         <section class="section">
-          <h2 class="section__title">类别明细 <span class="section__hint">对照合理区间（RM／月）</span></h2>
+          <h2 class="section__title">类别明细 ${infoButton('cats')}</h2>
+          ${infoPanel('cats', html`<p>右边是${isCurrentP ? `${THIS}到今天` : THIS}花的钱；标签按${ev.model ? '每月估算（固定项目 + 近期日常开销）' : ev.normalized ? '按 30 天换算的金额' : '这个金额'}对照吉隆坡 24 岁创业者每月的合理区间（「参考」后面的数字，RM／月）。创业投入单独计算，不影响生活费评估。</p>`)}
           <div class="card card--flush">
             ${s.personal > 0 ? html`<div class="card__pad">
               ${stackBar(listed.filter((r) => r.amount > 0).map((r) => ({ id: r.categoryId, value: r.amount, color: cat(r.categoryId).color, label: cat(r.categoryId).name })))}
@@ -127,7 +136,7 @@ const screen = {
                 ${catIcon(cat(r.categoryId))}
                 <span class="row__body">
                   <span class="row__title">${cat(r.categoryId).name}</span>
-                  <span class="row__subtitle">${r.range ? `参考 ${r.range[0]}–${r.range[1]}` : '无参考值'}${r.monthly !== null && r.monthly !== undefined ? ` · 每月约 ${formatMoney(r.monthly, { round: true })}` : ''}${r.per30 !== null && r.per30 !== undefined ? ` · 按 30 天约 ${formatMoney(r.per30, { round: true })}` : ''} · ${rowShares[i]}%</span>
+                  <span class="row__subtitle">${r.monthly !== null && r.monthly !== undefined ? `每月约 ${formatMoney(r.monthly, { round: true })} · ` : r.per30 !== null && r.per30 !== undefined ? `按 30 天约 ${formatMoney(r.per30, { round: true })} · ` : ''}${r.range ? `参考 ${r.range[0]}–${r.range[1]}` : '无参考值'} · ${rowShares[i]}%</span>
                 </span>
                 <span class="row__trail">
                   <span class="row__value">${formatMoney(r.amount, { round: true })}</span>
@@ -136,7 +145,7 @@ const screen = {
               </li>`)}
               ${s.business ? html`<li class="row row--static">
                 ${catIcon(cat('business'))}
-                <span class="row__body"><span class="row__title">创业投入</span><span class="row__subtitle">单独计算，不影响生活费评估</span></span>
+                <span class="row__body"><span class="row__title">创业投入</span><span class="row__subtitle">单独计算</span></span>
                 <span class="row__trail"><span class="row__value">${formatMoney(s.business, { round: true })}</span></span>
               </li>` : ''}
             </ul>
@@ -147,16 +156,16 @@ const screen = {
       ${cmp.comparable && (cmp.previous.expense > 0 || cmp.current.expense > 0) ? html`
         <section class="section">
           <div class="section__header">
-            <h2 class="section__title">${cycle ? '与上一期相比' : `与${monthLabel(cmp.prevYm, false)}相比`}${cmp.sameDays ? html` <span class="section__hint">前 ${cmp.sameDays} 天</span>` : ''}</h2>
+            <h2 class="section__title">${cycle ? '与上一期相比' : `与${monthLabel(cmp.prevYm, false)}相比`}${cmp.sameDays ? html` <span class="section__hint">前 ${cmp.sameDays} 天</span>` : ''} ${infoButton('compare')}</h2>
             <span class="section__meta ${!cmpRM ? '' : cmp.delta > 0 ? 'is-up' : 'is-down'}">${formatMoney(cmp.delta, { round: true, sign: true })}${cmp.ratio !== null ? ` (${formatPercent(cmp.ratio, 0, { sign: true })})` : ''}</span>
           </div>
+          ${infoPanel('compare', html`<p>比的是个人支出，创业投入不算在内。右侧为增加，左侧为减少${cmp.sameDays
+            ? `。${THIS}还没结束，所以两期都只比较前 ${cmp.sameDays} 天的日常开销；固定项目（房租、保险、订阅等）每期扣的日子不同，也先不算`
+            : cmp.normalized ? '；两期都按 30 天换算' : ''}。</p>`)}
           <div class="card">
             ${cmpRows.length
               ? divergeList(cmpRows.slice(0, 6).map((r) => ({ ...r, label: cat(r.categoryId).name })))
               : html`<p class="muted">和上个月一样。</p>`}
-            <p class="card__footnote">${icon('info')} 右侧为增加，左侧为减少${cmp.sameDays
-              ? `；${THIS}还没结束，所以两期都只比较前 ${cmp.sameDays} 天`
-              : cmp.normalized ? '；两期都按 30 天换算' : ''}。</p>
           </div>
         </section>` : ''}
 
@@ -194,7 +203,7 @@ function groupSplit(s, running) {
     .filter((p) => p.v > 0);
   const shares = sharePercents(parts.map((p) => p.v));
   return html`<div class="card card--groups">
-    <h3 class="card__title">钱花在哪一类${running ? html` <span class="section__hint">目前</span>` : ''}</h3>
+    <h3 class="card__title">钱花在哪一类${running ? html` <span class="section__hint">目前</span>` : ''} ${infoButton('groups')}</h3>
     <ul class="groups">
       ${parts.map((p, i) => html`<li class="groups__row" data-group="${p.g}">
         <span class="groups__label">${GROUP_LABELS[p.g]}</span>
@@ -202,7 +211,7 @@ function groupSplit(s, running) {
         <span class="groups__value">${shares[i]}%</span>
       </li>`)}
     </ul>
-    <p class="card__footnote">${icon('info')} 按个人开销计算${s.business ? `，创业投入 ${formatMoney(s.business, { round: true })} 另计` : ''}。建议：必要开销 ≤ 60%，生活享受 ≤ 25%，每月至少存下 20%。</p>
+    ${infoPanel('groups', html`<p>按个人开销计算${s.business ? `，创业投入 ${formatMoney(s.business, { round: true })} 另计` : ''}。建议：必要开销 ≤ 60%，生活享受 ≤ 25%，每月至少存下 20%。</p>`)}
   </div>`;
 }
 
@@ -224,24 +233,23 @@ function runwayCard(rw, settings, savingsNow, cash, today) {
       </a>
     </section>`;
   }
-  // Rounded down once to the tenth shown, and judged on that figure: 5.96 months is "5.9", short of the 6-month line.
-  const months = typeof rw?.months === 'number' ? Math.floor(rw.months * 10 + 1e-9) / 10 : rw?.months;
+  // Rounded down once to the tenth shown, and judged on that figure (the overview tile shows the same).
+  const months = runwayShown(rw?.months);
   const tone = months === null || months === undefined ? 'info' : months >= rw.target ? 'good' : months >= 3 ? 'warn' : 'bad';
   const [fixedShown, dailyShown] = rw ? roundedParts(rw.avg, rw.fixed) : [0, 0];
   return html`<section class="section">
-    <h2 class="section__title">个人 Runway</h2>
+    <h2 class="section__title">个人 Runway ${rw ? infoButton('runway') : ''}</h2>
+    ${rw ? infoPanel('runway', html`<p>${months === null
+      ? '记录满 7 天后，就能算出每月开销和 Runway。'
+      : `每月开销 ${formatMoney(rw.avg, { round: true })} = 固定项目 ${formatMoney(fixedShown, { round: true })} + 日常开销 ${formatMoney(dailyShown, { round: true })}（按近 ${rw.days} 天的平均速度）。${months >= rw.target ? '已达到 6 个月的安全线。' : `建议至少储备 ${rw.target} 个月生活费作为创业安全垫。`}`}</p>
+      <p>「目前存款」${cash ? `是${dayLabel(cash.at, today)}对账填的数字，之后` : ''}跟着记的收入和支出自动加减；有漏记的话它会偏高，隔一段时间在「今天」页点「手上的钱」对一次账就准了。${rw.oneOffBusiness > 0 ? `一次性的创业支出（近 ${rw.days} 天共 ${formatMoney(rw.oneOffBusiness, { round: true })}）不算进每月开销；如果是每月都要付的（例如分期还款），把它设成固定项目就会算进去。` : ''}</p>`) : ''}
     <div class="card card--runway" data-tone="${tone}">
       ${rw ? html`
         <div class="runway__main">
           <span class="runway__value">${months === null ? '—' : months >= 99 ? '99+' : months.toFixed(1)}</span>
           <span class="runway__unit">个月</span>
         </div>
-        <p class="runway__text">${months === null
-          ? `目前存款 ${formatMoney(savingsNow, { round: true })}。记录满 7 天后，就能算出每月开销和 Runway。`
-          : html`目前存款 ${formatMoney(savingsNow, { round: true })}${cash ? `（${dayLabel(cash.at, today)}对账，之后按记录加减）` : ''} ÷ 每月开销 <strong>${formatMoney(rw.avg, { round: true })}</strong>
-            （固定项目 ${formatMoney(fixedShown, { round: true })} + 日常开销 ${formatMoney(dailyShown, { round: true })}，按近 ${rw.days} 天的平均速度）。
-            ${months >= rw.target ? '已达到 6 个月的安全线。' : `建议至少储备 ${rw.target} 个月生活费作为创业安全垫。`}`}</p>
-        <p class="card__footnote">${icon('info')} 「目前存款」从你上次对账填的数字开始，跟着之后记的收入和支出自动加减；有漏记的话它会偏高，隔一段时间在「今天」页点「手上的钱」对一次账就准了。${rw.oneOffBusiness > 0 ? `一次性的创业支出（近 ${rw.days} 天共 ${formatMoney(rw.oneOffBusiness, { round: true })}）不算进每月开销；如果是每月都要付的（例如分期还款），把它设成固定项目就会算进去。` : ''}</p>` : ''}
+        <p class="runway__text">目前存款 ${formatMoney(savingsNow, { round: true })}${months === null ? '' : html` ÷ 每月开销 <strong>${formatMoney(rw.avg, { round: true })}</strong>`}</p>` : ''}
       ${goal ? html`
         <div class="goal">
           <div class="goal__head"><span>${settings.goalName}</span><span>${formatMoney(Math.max(0, savingsNow), { round: true })} / ${formatMoney(goal, { round: true })}</span></div>

@@ -2,6 +2,7 @@
 import { html, icon, catIcon, money } from '../html.js';
 import { progress, projectionChart } from '../charts.js';
 import { statusBadge } from './shared.js';
+import { infoButton, infoPanel } from '../info.js';
 import {
   planState, projectionSeries, portfolioSummary, holdingSummary, yearsBetween, addPeriods, FREQ_OPTIONS, HOLDING_KINDS,
 } from '../../core/invest.js';
@@ -121,9 +122,10 @@ const screen = {
 
       <section class="section">
         <div class="section__header">
-          <h2 class="section__title">计划</h2>
+          <h2 class="section__title">计划 ${infoButton('inv-plan')}</h2>
           <button type="button" class="link" data-invest="plan">调整</button>
         </div>
+        ${infoPanel('inv-plan', html`<p>每${freq.short === '每年' ? '年' : freq.short === '每季' ? '季' : '月'}初投入、按年复利计算。回报率是假设，不是保证。</p>`)}
         <div class="card card--plan">
           <p class="plan__lead">要在${st.started ? '到期前' : ` ${years} 年内`}达到目标，${freq.label}需要投入：</p>
           <div class="rate-table" role="table" aria-label="不同回报假设下每次需要投入的金额">
@@ -139,7 +141,6 @@ const screen = {
             <li><span>到期预计</span><strong>${formatMoney(st.projected.low, { round: true })} – ${formatMoney(st.projected.high, { round: true })}</strong></li>
             ${st.shareOfTriggerIncome !== null ? html`<li><span>约占月收入 ${formatMoney(p.triggerIncome, { round: true })} 的</span><strong>${formatPercent(st.shareOfTriggerIncome)}</strong></li>` : ''}
           </ul>
-          <p class="card__footnote">${icon('info')} 每${freq.short === '每年' ? '年' : freq.short === '每季' ? '季' : '月'}初投入、按年复利计算。回报率是假设，不是保证。</p>
         </div>
       </section>
 
@@ -199,7 +200,8 @@ const screen = {
         </div>`}
       </section>
 
-      <p class="section__footer disclaimer">这是规划工具，不构成投资建议。回报率是你的假设，实际回报可能更高、更低，也可能亏损；投资前请自行评估风险。</p>
+      <p class="section__footer disclaimer">规划工具，不构成投资建议 ${infoButton('inv-disclaimer', '投资风险说明')}</p>
+      ${infoPanel('inv-disclaimer', html`<p>回报率是你的假设，实际回报可能更高、更低，也可能亏损；投资前请自行评估风险。</p>`, 'info-panel--center')}
     `;
   },
 
@@ -223,7 +225,7 @@ function triggerCard(st) {
   const best = Math.max(t.thisMonth, t.lastMonth);
   return html`<section class="card card--trigger" data-reached="${t.reached}">
     <div class="goal-card__head">
-      <span class="card__eyebrow">${icon('salary')} 开始条件</span>
+      <span class="card__eyebrow">${icon('salary')} 开始条件 ${t.reached ? '' : infoButton('inv-trigger')}</span>
       ${t.reached ? statusBadge('ok') : ''}
     </div>
     <p class="trigger__title">${t.reached ? '已达到月收入' : '月收入达到'} <strong>${formatMoney(t.threshold, { round: true })}</strong> ${t.reached ? '，可以开始投资' : '时开始投资'}</p>
@@ -233,7 +235,7 @@ function triggerCard(st) {
       <li><span>上个月</span><strong>${formatMoney(t.lastMonth, { round: true })}</strong></li>
       ${t.avgMonths > 1 ? html`<li><span>近 ${t.avgMonths} 个月平均</span><strong>${formatMoney(t.avg3, { round: true })}</strong></li>` : ''}
     </ul>
-    ${t.reached ? html`<button type="button" class="btn btn--primary btn--block" data-invest="first-in">记录第一笔投入</button>` : html`<p class="card__footnote">${icon('info')} 收入按「记录」里的收入计算。达到后这里会提醒你。</p>`}
+    ${t.reached ? html`<button type="button" class="btn btn--primary btn--block" data-invest="first-in">记录第一笔投入</button>` : infoPanel('inv-trigger', html`<p>收入按「记录」里的收入计算。达到后这里会提醒你。</p>`)}
   </section>`;
 }
 
