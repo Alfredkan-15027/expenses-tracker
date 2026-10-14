@@ -820,6 +820,50 @@ html.is-concealed #app, html.is-concealed #overlay-root { visibility: hidden; }
 .health-item__rows { margin: 0 -18px; }
 .health-item__rows .row { background: transparent; padding-left: 18px; padding-right: 14px; }
 
+/* ── 说明 (ⓘ) ─────────────────────────────────────────────────────────────────
+   Hooks set by src/ui/info.js (keep these class names):
+   .info-btn                     the ⓘ beside a title; [aria-expanded="true"] while its panel is open
+   .info-panel[data-open]        the folded small print; closed panels are [inert]
+   .info-panel__inner / __box    clip / the tinted box inside it;  .info-list  icon + text lines in a panel
+   The panel unfolds in place (grid rows 0fr → 1fr) while its text fades and sharpens in, after
+   motion-primitives' Disclosure and transitions.dev's expand. */
+.info-btn {
+  position: relative; display: inline-grid; place-items: center; flex: none; vertical-align: middle;
+  width: 22px; height: 22px; border-radius: 50%; padding: 0;
+  background: var(--fill-3); color: var(--label-2); font-size: 14px;
+  transition: background-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out), transform var(--dur-pop) var(--ease-pop);
+}
+.info-btn::before { content: ""; position: absolute; inset: -11px; } /* 44 pt to tap */
+.info-btn:active { transform: scale(0.88); }
+.info-btn[aria-expanded="true"] { background: var(--accent); color: #fff; transform: rotate(-8deg) scale(1.06); }
+.info-btn .icon { width: 1em; height: 1em; }
+.section__title .info-btn, .card__title .info-btn { align-self: center; margin-left: 2px; }
+.card__eyebrow .info-btn { margin-left: 2px; }
+
+.info-panel {
+  display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-sheet) var(--ease-spring);
+}
+.info-panel[data-open] { grid-template-rows: 1fr; }
+.info-panel__inner { min-height: 0; overflow: hidden; }
+.info-panel__box {
+  margin-top: 10px; padding: 12px 14px; border-radius: 14px;
+  background: var(--fill-4); box-shadow: inset 0 0 0 0.5px var(--separator);
+  font: var(--text-footnote); color: var(--label-2);
+  display: flex; flex-direction: column; gap: 6px;
+  opacity: 0; filter: blur(4px); transform: translateY(-6px) scale(0.98); transform-origin: top center;
+  transition: opacity var(--dur) ease, filter var(--dur) ease, transform var(--dur-sheet) var(--ease-spring);
+}
+.info-panel[data-open] .info-panel__box { opacity: 1; filter: none; transform: none; transition-delay: 40ms; }
+.info-panel__box .link { min-height: 32px; padding: 4px 0; align-self: flex-start; font: var(--text-footnote); font-weight: 600; }
+.info-panel--center .info-panel__box { text-align: center; }
+/* Under a section title: the collapsed panel takes no room, not even the section's gap. */
+.section > .info-panel { margin-top: -8px; }
+.section > .info-panel .info-panel__box { margin-top: 8px; }
+.info-list { display: flex; flex-direction: column; gap: 8px; }
+.info-list li { display: flex; gap: 8px; align-items: flex-start; }
+.info-list .icon { flex: none; font-size: 14px; margin-top: 2px; color: var(--label-3); }
+
 /* ── Motion ─────────────────────────────────────────────────────────────────
    Hooks set by src/ui/motion.js (keep these class names):
    .m-digit / .is-popping   money whose value changed: digits pop in turn (adapted from transitions.dev, Number pop-in)
