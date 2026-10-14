@@ -136,11 +136,11 @@ npm run dev
 
 | 页面 | class |
 |---|---|
-| 今天 | `.card--hero[data-tone=good｜warn｜bad]`、`.hero-amount`、`.hero-sub`、`.hero-foot`、`.hero-note`（`--bad`）、`.card--rings`；手上的钱卡片 `.cash-card[data-tone=warn]`、`.cash-card__icon`、`.cash-card__body`、`.cash-card__label`、`.cash-card__sub`、`.cash-card__value`、`.cash-card__cta`、`.cash-card__chevron` |
+| 今天 | `.card--hero[data-tone=good｜warn｜bad]`、`.hero-head`（标签 + ⓘ）、`.hero-amount`、`.hero-sub`、`.hero-foot`、`.hero-note`（`--bad`，只剩警告）、`.card--rings`；手上的钱卡片 `.cash-card[data-tone=warn]`、`.cash-card__icon`、`.cash-card__body`、`.cash-card__label`、`.cash-card__sub`、`.cash-card__value`、`.cash-card__cta`、`.cash-card__chevron` |
 | 分析 · 便当格 | `.bento`、`.bento__tile`（`--hero[data-tone=good｜bad]`、`--wide`）、`.bento__label`、`.bento__value`（`--hero`、`.is-negative`）、`.bento__sub`、`.bento__flow`、`.bento__meter`（`.is-over`；`> span` 进度、`> i` 80% 刻度）、`.bento__icon[data-color]`、`.bento__body`、`.bento__aside`、`.bento__chevron`。设计稿：Figma「Expenses Tracker 1.4 · Bento & 对账」 |
 | 对账 | `.cash-form`、`.cash-recorded`、`.cash-recorded__value`、`.cash-breakdown`（`.is-income`）、`.cash-diff[data-tone=good｜warn｜info｜bad]`、`.cash-choice`、`.cash-choice__row`、`.cash-choice__sub` |
 | 记录 | `.toolbar`、`.month-switch`、`.month-switch__label`、`.summary-row`、`.summary-row__item`、`.section--day`、`.section__title--day` |
-| 分析 | `.stat-grid`、`.stat`、`.stat__label`、`.stat__value`（`.is-income`、`.is-negative`）、`.stat__note`、`.card--benchmark[data-tier]`、`.benchmark__head`、`.benchmark__profile`、`.benchmark__amount`、`.benchmark__note`、`.insights`、`.insight[data-tone]`、`.insight__icon`、`.insight__text`、`.card--groups`、`.groups`、`.groups__row[data-group]`、`.card--runway[data-tone]`、`.runway__main`、`.runway__value`、`.runway__unit`、`.runway__text`、`.goal`、`.goal__head` |
+| 分析 | `.stat-grid`、`.stat`、`.stat__label`、`.stat__value`（`.is-income`、`.is-negative`）、`.stat__note`、`.card--benchmark[data-tier]`、`.benchmark__head`、`.benchmark__profile`、`.benchmark__amount`、`.insights`、`.insight[data-tone]`、`.insight__head`（整行是按钮，`[aria-expanded]`）、`.insight__icon`、`.insight__title`、`.insight__figure`、`.insight__chevron`、`.insight__body`（展开的说明）、`.card--groups`、`.groups`、`.groups__row[data-group]`、`.card--runway[data-tone]`、`.runway__main`、`.runway__value`、`.runway__unit`、`.runway__text`、`.goal`、`.goal__head` |
 | 记一笔 | `.entry[data-kind=expense｜income]`、`.entry__type`（标题栏的支出/收入切换）、`.entry__hint`、`.entry__meta`、`.entry__delete`、`.entry__save`；收入类型按钮 `.type-picker`（`.is-set`）、`.type-picker__label`、`.type-picker__value`、`.type-picker__chevron` |
 | 投资 | `.card--goal[data-status=preparing｜ahead｜tight｜behind｜done｜missed]`、`.goal-card__head`、`.card--trigger[data-reached]`、`.trigger__title`、`.card--plan`、`.plan__lead`、`.rate-table`、`.rate-table__cell`（`.is-mid` = 建议值）、`.rate-table__rate`、`.rate-table__amount`、`.plan__facts`、`.projection`、`.projection__svg`、`.projection__grid`、`.projection__target`、`.projection__band`、`.projection__edge--high｜--low`、`.projection__actual`、`.projection__dot`、`.projection__today`、`.projection__xlabel`、`.projection__ylabel`、`.legend--projection`、`.legend__swatch--band｜--actual｜--target`、`.milestones`、`.insight-line[data-tone]`、`.row--holding`、`.delta.is-up｜.is-down`、`.disclaimer` |
 | 投资表单 | `.invest-form`、`.plan-editor`、`.holding-detail`、`.holding-detail__head`、`.holding-detail__kind`、`.action-row`、`.chip--select.is-on`、`.choice-cards--wrap`、`.list--values`、`.row--value`、`.value-input`、`.row--history`、`.row__delete` |
@@ -159,6 +159,15 @@ npm run dev
 - `.swipe.is-new`（刚加的一行）、`.swipe.is-removing`（正在删除的一行，高度收起）
 - 动画用的 token：`--ease-pop`、`--dur-pop`、`--dur-enter`、`--stagger`
 - 「减少动态效果」打开时全部不播（`base.css` 的 reduced-motion 规则 + `motion.js` 自己也会检查）
+
+### 说明 ⓘ（`components.css` 的「说明」区块，由 `src/ui/info.js` 加上）
+
+小字说明默认收起，点标题旁的 ⓘ（「重点」里点整行）才展开，App 重开后又全部收起。下面这些 class 不能改：
+
+- `.info-btn`（ⓘ 按钮，`[aria-expanded="true"]` 时是打开状态）
+- `.info-panel`（`[data-open]` 时展开；收起时有 `inert`）、`.info-panel__inner`（裁切）、`.info-panel__box`（里面的底色方块）、`.info-panel--center`
+- `.info-list`（说明里「图标 + 一行字」的列表）
+- 展开动画：高度用 grid rows 0fr → 1fr，文字淡入、由模糊变清楚；「减少动态效果」时直接显示
 
 ### data 属性
 
