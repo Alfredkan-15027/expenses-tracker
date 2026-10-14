@@ -89,7 +89,7 @@ export async function init({ demo = false } = {}) {
 
 /** Generate any fixed items that came due (called at launch and when the app returns to foreground). */
 export async function runRecurring(today = todayISO()) {
-  const { created, updated } = generateDue(state.recurring, today, newId);
+  const { created, updated } = generateDue(state.recurring, today, newId, Date.now(), state.transactions);
   if (!created.length && !updated.length) return 0;
   // Memory first (a second call a moment later must not generate the same charges again), then ONE atomic write:
   // the charges and the "this month is done" marks land together, or neither does — never a charge without its mark
