@@ -579,3 +579,50 @@ test('savings kept aside (对账 → 其中存款) are not spending money: the a
   assert.equal(runway({ txs: Array.from({ length: 10 }, (_, i) => tx(addDaysISO('2026-09-01', i), 3000)), currentSavings: cash.balance, today: '2026-09-10', known: true }).months > 0, true);
   assert.equal(sanitizeSettings({ keptSavings: -1 }).keptSavings, 0);
 });
+
+test('a fixed item paid by hand before its day is done for that month: not logged again, not set aside again, not today\'s spending', () => {
+  const rec = [
+    { id: 'rent', type: 'expense', amount: 80000, categoryId: 'housing', note: '房租', day: 20, active: true, startMonth: '2026-09', lastMonth: '2026-09' },
+    { id: 'ins', type: 'expense', amount: 25000, categoryId: 'health', note: '保险费', day: 20, active: true, startMonth: '2026-09', lastMonth: '2026-09' },
+    { id: 'wifi', type: 'expense', amount: 5600, categoryId: 'utilities', note: 'Wi-Fi', day: 15, active: true, startMonth: '2026-09', lastMonth: '2026-09' },
+  ];
+  const txs = [
+    tx('2026-10-14', 80000, 'housing'),                     // October rent transferred early, typed in by hand
+    tx('2026-10-14', 25000, 'health', { note: '保险费' }),
+    tx('2026-10-14', 1730),                                 // lunch
+  ];
+  // Generation on the 20th logs neither of them again (the item's month is still marked done)
+  const g = generateDue(rec, '2026-10-20', (() => { let i = 0; return () => `g${++i}`; })(), 1, txs);
+  assert.deepEqual(g.created.map((c) => c.recurringId), ['wifi']);
+  assert.deepEqual(g.updated.map((r) => `${r.id}:${r.lastMonth}`).sort(), ['ins:2026-10', 'rent:2026-10', 'wifi:2026-10']);
+  // Not set aside again for the rest of the month
+  assert.equal(upcomingRecurring(rec, '2026-10-14', '2026-10-31', 'expense', txs), 5600);
+  assert.equal(upcomingRecurring(rec, '2026-10-14', '2026-10-31'), 5600 + 80000 + 25000, 'without the records nothing is known');
+  // Today: the rent and the insurance are fixed charges, only the lunch is today's spending
+  const settings = sanitizeSettings({ expectedIncome: 400000, savingsTarget: 100000 });
+  const b = dailyBudget({ txs, settings, recurring: rec, today: '2026-10-14' });
+  assert.equal(b.fixedToday, 105000);
+  assert.equal(b.spentTodayFree, 1730);
+  assert.equal(b.reserved, 5600);
+  // A different bill of a similar size in another category is not taken for it
+  assert.equal(generateDue(rec, '2026-10-20', () => 'x', 1, [tx('2026-10-14', 80000, 'shopping')]).created.length, 3);
+});
+
+test('cash allowance on the day of the check: spending logged before the check still counts as today\'s; a business payment just leaves less', () => {
+  const ts = Date.parse('2026-10-14T06:33:00Z');
+  const settings = sanitizeSettings({ expectedIncome: 400000, savingsTarget: 100000, currentSavings: 200000, keptSavings: 0, currentSavingsAt: '2026-10-14', currentSavingsTs: ts });
+  const txs = [
+    tx('2026-10-14', 10000, 'food', { createdAt: ts - 60_000 }),                                   // before the check: already out of RM 2,000
+    tx('2026-10-14', 75000, 'business', { business: true, createdAt: ts + 60_000 }),                // after: a debt instalment
+  ];
+  const cash = cashOnHand({ txs, settings, today: '2026-10-14' });
+  assert.equal(cash.balance, 200000 - 75000);
+  assert.equal(cash.todayOut, 85000);
+  assert.equal(cash.todayOutBiz, 75000);
+  const b = dailyBudget({ txs, settings, recurring: [], today: '2026-10-14', cash });
+  assert.equal(b.limit, 'cash');
+  // start of today = what is left now + today's personal spending; the business payment is not "today's spending"
+  assert.equal(b.allowanceToday, Math.floor((125000 + 10000) / 18));
+  assert.equal(b.shownToday, 10000);
+  assert.equal(b.leftToday, b.allowanceToday - 10000);
+});
