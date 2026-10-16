@@ -33,7 +33,7 @@ export function openCashSheet() {
           </ul>
         </section>` : html`<p class="callout">${icon('info')}<span>填一次现在手上有多少钱，App 就会按之后记的收入和支出帮你算着走：「今天还能花」不会超过你真正有的钱，下次对账也能看出有没有漏记。</span></p>`}
         ${moneyField({ name: 'real', label: '现在实际有多少', value: 0, hint: '银行、电子钱包和现金里随时能用的钱加起来，存款也算（投资另计）。只存在这台手机。' })}
-        ${moneyField({ name: 'kept', label: '其中存款（不动用）', value: state.settings.keptSavings, hint: '这部分不会算进「今天还能花」，只用剩下的钱来算；Runway 仍按全部的钱算。没有就留空。' })}
+        ${moneyField({ name: 'kept', label: '其中存款（不动用）', value: state.settings.keptSavings, hint: '这部分不会算进「今天还能花」，只用剩下的钱来算；Runway 仍按全部的钱算。没有就留空。只改存款的话，上面可以不填。' })}
         <p class="cash-split" aria-live="polite" hidden></p>
         <div class="cash-diff" aria-live="polite" hidden></div>
         <fieldset class="cash-choice" hidden>
@@ -54,13 +54,21 @@ export function openCashSheet() {
         const diffBox = el.querySelector('.cash-diff');
         const choice = el.querySelector('.cash-choice');
         const split = el.querySelector('.cash-split');
-        // The savings part must fit inside the total; what is left is the money 今天还能花 may use.
-        const keptError = (real, kept) => (kept === null ? '存款金额不正确（最多两位小数）' : real !== null && kept > real ? '存款不能比现在实际有的钱多' : '');
+        // The savings part must fit inside the total; what is left is the money 今天还能花 may use. With the total left
+        // empty only the savings change, so they are held against the money the records say is there now.
+        const totalOf = (real, typed) => (typed ? real : cash ? cash.balance : null);
+        const keptError = (real, kept, typed) => {
+          const total = totalOf(real, typed);
+          if (kept === null) return '存款金额不正确（最多两位小数）';
+          if (total !== null && kept > total) return typed ? '存款不能比现在实际有的钱多' : `存款不能比按记录现在有的 ${formatMoney(total)} 多`;
+          return '';
+        };
         const showSplit = (real, kept, typed) => {
-          const err = keptError(real, kept);
-          split.hidden = !err && !(typed && kept);
+          const err = keptError(real, kept, typed);
+          const total = totalOf(real, typed);
+          split.hidden = !err && !(kept && total !== null);
           split.dataset.tone = err ? 'bad' : '';
-          split.textContent = err || (typed && kept ? `能用的钱 ${formatMoney(real - kept)}（存款 ${formatMoney(kept)} 不动用）` : '');
+          split.textContent = err || (kept && total !== null ? `能用的钱 ${formatMoney(total - kept)}（存款 ${formatMoney(kept)} 不动用）` : '');
           return !err;
         };
         const update = () => {
@@ -102,10 +110,27 @@ export function openCashSheet() {
         async function save() {
           const real = readMoney(form.real);
           const kept = readMoney(form.kept);
+          const typed = form.real.value.trim() !== '';
           if (saving) return;
-          if (real === null || form.real.value.trim() === '') { haptic('error'); form.real.focus(); update(); return; }
-          if (keptError(real, kept)) { haptic('error'); form.kept.focus(); update(); return; }
+          // Only the savings changed (total left empty): keep the last check, update the savings part.
+          const onlyKept = !typed && cash;
+          if (real === null || (!typed && !onlyKept)) { haptic('error'); form.real.focus(); update(); return; }
+          if (keptError(real, kept, typed)) { haptic('error'); form.kept.focus(); update(); return; }
           saving = true;
+          if (onlyKept) {
+            try {
+              await saveSettings({ keptSavings: kept });
+            } catch {
+              saving = false;
+              haptic('error');
+              toast('没能保存，请再试一次', { icon: 'warning', tone: 'error' });
+              return;
+            }
+            haptic('success');
+            toast(`已更新存款 ${formatMoney(kept, { round: true })}，能用 ${formatMoney(cash.balance - kept, { round: true })}`, { icon: 'check', tone: 'success' });
+            api.close();
+            return;
+          }
           const gap = cash ? gapEntry(real, cash.balance, today) : null;
           const record = gap && form.gap.value === 'record';
           try {
