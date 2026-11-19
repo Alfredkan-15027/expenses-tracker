@@ -193,6 +193,17 @@ test('quickPicks finds repeated entries', () => {
   assert.equal(q[0].count, 2);
 });
 
+test('quickPicks shows one thing once, at the amount paid most often', () => {
+  const txs = [
+    tx('2026-09-01', 800, 'food'), tx('2026-09-02', 800, 'food'), tx('2026-09-03', 800, 'food'),
+    tx('2026-09-04', 1100, 'food'), tx('2026-09-05', 1100, 'food'),
+    tx('2026-09-06', 2000, 'transport'), tx('2026-09-07', 2000, 'transport'),
+    tx('2026-09-08', 1100, 'food', { note: '午餐' }), tx('2026-09-09', 1100, 'food', { note: '午餐' }),
+  ];
+  const q = quickPicks(txs, '2026-09-23');
+  assert.deepEqual(q.map((e) => `${e.categoryId}:${e.note}:${e.amount}`), ['food::800', 'food:午餐:1100', 'transport::2000']);
+});
+
 test('buildInsights produces a verdict first', () => {
   const txs = [tx('2026-08-01', 60000, 'housing'), tx('2026-08-02', 80000, 'food'), income('2026-08-01', 400000)];
   const list = buildInsights({ txs, ym: '2026-08', categories: DEFAULT_CATEGORIES, profile: {}, settings: { savingsTarget: 80000 }, today: '2026-09-23' });

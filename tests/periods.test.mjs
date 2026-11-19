@@ -60,9 +60,17 @@ test('daily budget runs from payday to the day before the next one', () => {
   assert.equal(b.reserved, 0);
   assert.equal(b.nextIncomeBills, RM(60));
   assert.equal(b.allowanceToday, Math.floor((RM(4000) - RM(1000)) / 26));
-  // … until the window begins without the income: then they are this cycle's to pay again
-  const late = dailyBudget({ txs, settings, recurring: rec, today: '2026-10-15' });
+  // … and that stays so inside the window while the income is awaited: the days before were allowed to spend as if
+  // those bills were not this cycle's, so they must not land on it the day the window opens
+  const waiting = dailyBudget({ txs, settings, recurring: rec, today: '2026-10-15' });
+  assert.equal(waiting.period.start, '2026-09-15');
+  assert.equal(waiting.billsUntil, '2026-10-14');
+  assert.equal(waiting.reserved, 0);
+  assert.equal(waiting.status, 'ok');
+  // Only when the whole window has passed without income is what is still due this (stretched) cycle's again
+  const late = dailyBudget({ txs, settings, recurring: rec, today: '2026-10-22' });
   assert.equal(late.period.start, '2026-09-15');
+  assert.equal(late.period.overdue, true);
   assert.equal(late.billsUntil, late.period.end);
 });
 
