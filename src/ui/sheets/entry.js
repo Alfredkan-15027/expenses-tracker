@@ -15,15 +15,16 @@ const TOP_CATEGORIES = 4;   // shown at once; with 更多 as the fifth cell
 const FREQUENT_DAYS = 60;
 
 /**
- * The categories used most in the last two months, most used first (ties: the order set in 设置 → 类别), `keep`
- * always among them. With no more than five there is nothing to hide: all of them.
+ * The categories typed in most in the last two months, most used first (ties: the order set in 设置 → 类别), `keep`
+ * always among them. Entries logged by fixed items don't count: nobody picks those by hand. With no more than five
+ * there is nothing to hide: all of them.
  */
 function frequentCategories(cats, type, keep) {
   if (cats.length <= TOP_CATEGORIES + 1) return cats;
   const since = addDays(todayISO(), -FREQUENT_DAYS);
   const counts = new Map();
   for (const t of state.transactions) {
-    if (t.type === type && t.date >= since) counts.set(t.categoryId, (counts.get(t.categoryId) || 0) + 1);
+    if (t.type === type && t.date >= since && !t.recurringId) counts.set(t.categoryId, (counts.get(t.categoryId) || 0) + 1);
   }
   const top = [...cats].sort((a, b) => (counts.get(b.id) || 0) - (counts.get(a.id) || 0) || a.order - b.order).slice(0, TOP_CATEGORIES);
   const kept = keep && !top.some((c) => c.id === keep) ? cats.find((c) => c.id === keep) : null;
@@ -237,7 +238,9 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
     }
   }
 
+  let saving = false; // a second tap while the first is still being written must not save the entry twice
   async function save() {
+    if (saving) return;
     const cents = toCents(s.amount);
     if (!cents) { shake(); hint('先输入金额'); return; }
     if (!s.categoryId) {
@@ -246,15 +249,18 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
       return;
     }
     const data = { type: s.type, amount: cents, categoryId: s.categoryId, note: s.note, date: s.date, business: s.type === 'expense' && s.business };
+    saving = true;
     haptic('success');
-    if (editing) {
-      await updateTransaction(tx.id, data);
-      sheet.close();
-      toast('已保存', { icon: 'check' });
-      return;
+    let saved = null;
+    try {
+      if (editing) await updateTransaction(tx.id, data);
+      else saved = await addTransaction(data);
+    } catch (err) {
+      saving = false; // nothing was written: the sheet stays, the entry can be saved again
+      throw err;
     }
-    const saved = await addTransaction(data);
     sheet.close();
+    if (editing) { toast('已保存', { icon: 'check' }); return; }
     const cat = categoryMap(state.categories).get(saved.categoryId);
     const when = saved.date === todayISO() ? '' : ` · ${dayLabel(saved.date)}`;
     toast(`${cat?.name || ''} ${formatMoney(saved.amount)}${when}`, {
