@@ -1,43 +1,21 @@
-// Small, dependency-free charts. Colors come from CSS (classes / data-color), never inline hex,
+// Small, dependency-free charts. Colours come from CSS (classes / data-color / data-tone), never inline hex,
 // so the styles layer fully controls the look.
+//   progress      a capsule meter, with an optional "time gone" tick
+//   dayBars       one bar per day of a period or month (the skyline): spending day by day
+//   donut         part-to-whole ring with the total in the middle
+//   stackBar      part-to-whole bar with a legend
+//   dial          half-circle gauge with a needle, against tier thresholds
+//   goalArc       a wide arc of progress towards a target, with a "time gone" tick
+//   trendChart    the last few periods as bars
+//   divergeList   change per category against the period before
+//   projectionChart  investment projection band, target and actual line
 import { html } from './html.js';
 import { formatCompact, formatMoney, sharePercents } from '../core/money.js';
 import { monthLabel } from '../core/dates.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const pct = (v) => `${(clamp(v, 0, 1) * 100).toFixed(2)}%`;
-
-/** Activity-style progress ring. tone: css modifier (spend | save | over …). */
-export function ring({ ratio, size = 76, stroke = 10, tone = 'spend', label = '' }) {
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const v = clamp(ratio || 0, 0, 1);
-  const mid = size / 2;
-  return html`<svg class="ring ring--${tone}" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="${label}">
-    <circle class="ring__track" cx="${mid}" cy="${mid}" r="${r}" stroke-width="${stroke}"></circle>
-    <circle class="ring__value ${v === 0 ? 'is-zero' : ''}" cx="${mid}" cy="${mid}" r="${r}" stroke-width="${stroke}"
-      stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - v)).toFixed(2)}"
-      transform="rotate(-90 ${mid} ${mid})"></circle>
-  </svg>`;
-}
-
-/** Concentric Activity-style rings, outermost first. rings: [{ ratio, tone, label }]. */
-export function activityRings(rings, { size = 104, stroke = 13, gap = 3 } = {}) {
-  const mid = size / 2;
-  return html`<svg class="rings__svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="${rings.map((r) => r.label).join('，')}">
-    ${rings.map((ring, i) => {
-      const r = mid - stroke / 2 - i * (stroke + gap);
-      const c = 2 * Math.PI * r;
-      const v = clamp(ring.ratio || 0, 0, 1);
-      return html`<g class="ring ring--${ring.tone}">
-        <circle class="ring__track" cx="${mid}" cy="${mid}" r="${r}" stroke-width="${stroke}"></circle>
-        <circle class="ring__value ${v === 0 ? 'is-zero' : ''}" cx="${mid}" cy="${mid}" r="${r}" stroke-width="${stroke}"
-          stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - v)).toFixed(2)}" transform="rotate(-90 ${mid} ${mid})"
-          style="--c:${c.toFixed(2)}px" data-motion="ring" data-motion-key="${ring.key || `${ring.tone}-${i}`}"></circle>
-      </g>`;
-    })}
-  </svg>`;
-}
+const f1 = (n) => n.toFixed(1);
 
 /** Linear progress with an optional "time elapsed" tick. */
 export function progress({ ratio, marker = null, tone = 'spend', label = '', key = '' }) {
@@ -49,16 +27,71 @@ export function progress({ ratio, marker = null, tone = 'spend', label = '', key
 }
 
 /**
- * Part-to-whole bar. segments: [{ id, value, color, label }]. Shows up to `max` segments,
- * the rest fold into one gray "其他" segment.
+ * The skyline: one bar per day. days: [{ date, value (cents), state: 'past' | 'today' | 'future', title }].
+ * limit (cents): a line the bars are held against (the daily allowance); bars above it are marked over.
+ * selected: a date drawn as picked. tappable: bars are buttons carrying data-day.
  */
-export function stackBar(segments, { max = 5 } = {}) {
-  const total = segments.reduce((a, s) => a + s.value, 0);
-  if (!total) return '';
+export function dayBars(days, { limit = 0, selected = '', tappable = false, label = '' } = {}) {
+  const max = Math.max(1, limit * 1.6, ...days.map((d) => d.value));
+  // A day far above the rest (rent) would flatten every other bar: the scale is eased with a square root.
+  const scale = (v) => Math.sqrt(Math.max(0, v) / max);
+  const col = (d, i) => {
+    const cls = `daybars__col is-${d.state} ${limit > 0 && d.value > limit ? 'is-over' : ''} ${d.date === selected ? 'is-selected' : ''} ${d.value > 0 ? '' : 'is-empty'}`;
+    const style = `--h:${(scale(d.value) * 100).toFixed(1)}%;--i:${i}`;
+    return tappable
+      ? html`<button type="button" class="${cls}" style="${style}" data-day="${d.date}" aria-label="${d.title}" aria-pressed="${d.date === selected}" ${d.state === 'future' ? 'disabled' : ''}><i></i></button>`
+      : html`<span class="${cls}" style="${style}"><i></i></span>`;
+  };
+  return html`<div class="daybars" ${tappable ? html`role="group"` : html`role="img"`} aria-label="${label}">
+    ${limit > 0 ? html`<span class="daybars__limit" style="bottom:${(scale(limit) * 100).toFixed(1)}%"></span>` : ''}
+    ${days.map(col)}
+  </div>`;
+}
+
+/** Up to `max` segments, largest first; the rest fold into one grey "其余". */
+function topSegments(segments, max) {
   const sorted = [...segments].sort((a, b) => b.value - a.value);
   const head = sorted.slice(0, max);
   const tail = sorted.slice(max).reduce((a, s) => a + s.value, 0);
   if (tail > 0) head.push({ id: '_rest', value: tail, color: 'gray', label: '其余' });
+  return head;
+}
+
+/**
+ * Part-to-whole ring. segments: [{ id, value, color, label }]; `center`: html shown in the middle.
+ * Each arc is a circle whose dash is its share (pathLength = 100, so the numbers are percents).
+ */
+export function donut(segments, { max = 6, center = '', label = '类别占比' } = {}) {
+  const total = segments.reduce((a, s) => a + s.value, 0);
+  if (!total) return '';
+  const head = topSegments(segments, max);
+  const GAP = head.length > 1 ? 1.4 : 0;
+  let at = 0;
+  const arcs = head.map((s) => {
+    const share = (s.value / total) * 100;
+    const len = Math.max(0.6, share - GAP);
+    const arc = html`<circle class="donut__seg" data-color="${s.color}" cx="60" cy="60" r="47" pathLength="100"
+      stroke-dasharray="${len.toFixed(2)} ${(100 - len).toFixed(2)}" stroke-dashoffset="${(-at - GAP / 2).toFixed(2)}"></circle>`;
+    at += share;
+    return arc;
+  });
+  return html`<div class="donut">
+    <svg class="donut__svg" viewBox="0 0 120 120" role="img" aria-label="${label}">
+      <circle class="donut__track" cx="60" cy="60" r="47"></circle>
+      <g transform="rotate(-90 60 60)">${arcs}</g>
+    </svg>
+    <div class="donut__center">${center}</div>
+  </div>`;
+}
+
+/**
+ * Part-to-whole bar. segments: [{ id, value, color, label }]. Shows up to `max` segments,
+ * the rest fold into one gray "其余" segment.
+ */
+export function stackBar(segments, { max = 5 } = {}) {
+  const total = segments.reduce((a, s) => a + s.value, 0);
+  if (!total) return '';
+  const head = topSegments(segments, max);
   const shares = sharePercents(head.map((s) => s.value)); // add up to 100%
   return html`
     <div class="stackbar" role="img" aria-label="类别占比">
@@ -69,32 +102,71 @@ export function stackBar(segments, { max = 5 } = {}) {
     </ul>`;
 }
 
+// A point on a circle; angles in degrees, 0° at 3 o'clock, clockwise (screen coordinates).
+const polar = (cx, cy, r, deg) => [cx + r * Math.cos((deg * Math.PI) / 180), cy + r * Math.sin((deg * Math.PI) / 180)];
+function arcPath(cx, cy, r, from, to) {
+  const [x1, y1] = polar(cx, cy, r, from);
+  const [x2, y2] = polar(cx, cy, r, to);
+  return `M${f1(x1)} ${f1(y1)}A${r} ${r} 0 ${Math.abs(to - from) > 180 ? 1 : 0} ${to > from ? 1 : 0} ${f1(x2)} ${f1(y2)}`;
+}
+
 /**
- * Living-cost gauge against tier thresholds (RM). value in cents.
- * Track spans 0 → last threshold × 1.25; four zones: lean / ok / high / over.
+ * Living-cost dial against tier thresholds (RM). value in cents.
+ * A half circle from 0 to the last threshold × 1.25, in four zones (lean / ok / high / over), with a needle.
  */
-export function tierGauge({ value, tiers, label }) {
+export function dial({ value, tiers, label }) {
   const [a, b, c] = tiers;
   const maxRM = c * 1.25;
-  const v = value / 100;
-  const zones = [
-    { tone: 'lean', w: a / maxRM },
-    { tone: 'ok', w: (b - a) / maxRM },
-    { tone: 'high', w: (c - b) / maxRM },
-    { tone: 'over', w: (maxRM - c) / maxRM },
-  ];
-  const tick = (t) => html`<span class="gauge__tick" style="left:${pct(t / maxRM)}">${t.toLocaleString('en-MY')}</span>`;
-  return html`<div class="gauge" role="img" aria-label="${label}">
-    <div class="gauge__track">
-      ${zones.map((z) => html`<span class="gauge__zone" data-tone="${z.tone}" style="flex-grow:${z.w.toFixed(4)}"></span>`)}
-      <span class="gauge__marker" style="left:${pct(v / maxRM)}"><span class="gauge__pin"></span></span>
-    </div>
-    <div class="gauge__ticks">${tick(a)}${tick(b)}${tick(c)}</div>
+  const v = clamp(value / 100 / maxRM, 0, 1);
+  const CX = 130, CY = 108, R = 88;
+  const deg = (t) => 180 + clamp(t, 0, 1) * 180; // 180° (left) → 360° (right), over the top
+  const GAP = 1.6;
+  const zones = [['lean', 0, a], ['ok', a, b], ['high', b, c], ['over', c, maxRM]];
+  const tick = (t) => {
+    const at = deg(t / maxRM);
+    const [x, y] = polar(CX, CY, R + 13, at);
+    // labels left of the top read towards the left, right of it towards the right, so none sits on the arc
+    return html`<text class="dial__tick" x="${f1(x)}" y="${f1(y + 3)}" text-anchor="${at < 255 ? 'end' : at > 285 ? 'start' : 'middle'}">${t.toLocaleString('en-MY')}</text>`;
+  };
+  return html`<div class="dial" role="img" aria-label="${label}">
+    <svg class="dial__svg" viewBox="0 0 260 124">
+      ${zones.map(([tone, from, to], i) => html`<path class="dial__zone" data-tone="${tone}"
+        d="${arcPath(CX, CY, R, deg(from / maxRM) + (i ? GAP : 0), deg(to / maxRM) - (i < 3 ? GAP : 0))}"></path>`)}
+      ${tick(a)}${tick(b)}${tick(c)}
+      <g class="dial__needle" style="--to:${(v * 180 - 90).toFixed(1)}deg" transform="rotate(${(v * 180 - 90).toFixed(1)} ${CX} ${CY})">
+        <path d="M${CX - 4} ${CY}L${CX} ${CY - R + 16}L${CX + 4} ${CY}Z"></path>
+      </g>
+      <circle class="dial__hub" cx="${CX}" cy="${CY}" r="7"></circle>
+    </svg>
   </div>`;
 }
 
 /**
- * Apple Health–style monthly bars. rows: [{ ym, expense, income, budget? }].
+ * A wide arc of progress (the investment goal). ratio: 0 → 1 done; marker: 0 → 1 of the time gone (null: none).
+ * `center`: html inside the arc.
+ */
+export function goalArc({ ratio, marker = null, tone = 'save', label = '', center = '' }) {
+  const CX = 150, CY = 150, R = 128, FROM = 150, SWEEP = 240;
+  const v = clamp(ratio || 0, 0, 1);
+  const d = arcPath(CX, CY, R, FROM, FROM + SWEEP);
+  const [mx1, my1] = polar(CX, CY, R - 13, FROM + SWEEP * clamp(marker ?? 0, 0, 1));
+  const [mx2, my2] = polar(CX, CY, R + 13, FROM + SWEEP * clamp(marker ?? 0, 0, 1));
+  return html`<div class="goal-arc goal-arc--${tone}">
+    <svg class="goal-arc__svg" viewBox="0 0 300 236" role="img" aria-label="${label}">
+      <defs><linearGradient id="goal-arc-paint" x1="0" y1="1" x2="1" y2="0">
+        <stop class="goal-arc__stop" offset="0"></stop><stop class="goal-arc__stop goal-arc__stop--end" offset="1"></stop>
+      </linearGradient></defs>
+      <path class="goal-arc__track" d="${d}"></path>
+      <path class="goal-arc__value ${v === 0 ? 'is-zero' : ''}" d="${d}" pathLength="100" stroke-dasharray="100 100"
+        stroke-dashoffset="${(100 * (1 - v)).toFixed(2)}" style="--c:100px" data-motion="ring" data-motion-key="goal-arc"></path>
+      ${marker !== null ? html`<line class="goal-arc__marker" x1="${f1(mx1)}" y1="${f1(my1)}" x2="${f1(mx2)}" y2="${f1(my2)}"></line>` : ''}
+    </svg>
+    <div class="goal-arc__center">${center}</div>
+  </div>`;
+}
+
+/**
+ * The last few periods as bars. rows: [{ ym, expense, income, budget? }].
  * Each bar is marked over against its own `budget` (default: `budget`, which is also where the 预算 line is drawn —
  * pass it only when it is every bar's budget).
  * Tapping a column updates the readout (handled by the screen via data-trend-i).
@@ -156,7 +228,7 @@ export function formatWan(cents) {
  * band: [{ t, low, high }], actual: [{ t, value }], years: plan length, yearLabel(t) → axis text.
  */
 export function projectionChart({ band, actual = [], target, years, yearLabel, todayT = null }) {
-  const W = 340, H = 196, L = 6, R = 46, T = 12, B = 26;
+  const W = 340, H = 204, L = 4, R = 48, T = 14, B = 26;
   const pw = W - L - R, ph = H - T - B;
   const maxV = Math.max(target * 1.12, ...band.map((p) => p.high), ...actual.map((p) => p.value), 1);
   const x = (t) => L + (Math.min(Math.max(t, 0), years) / years) * pw;
@@ -168,18 +240,24 @@ export function projectionChart({ band, actual = [], target, years, yearLabel, t
   for (let t = 0; t <= years; t += step) ticks.push(t);
   if (ticks[ticks.length - 1] !== years) ticks.push(years);
   const grid = [0, target / 2, target];
+  const last = band[band.length - 1];
   return html`<figure class="projection">
     <svg class="projection__svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="投资预测图：目标 ${formatWan(target)}，预测区间与实际走势">
+      <defs><linearGradient id="projection-paint" x1="0" y1="0" x2="1" y2="0">
+        <stop class="projection__stop" offset="0"></stop><stop class="projection__stop projection__stop--end" offset="1"></stop>
+      </linearGradient></defs>
       ${grid.map((g) => html`<line class="projection__grid" x1="${L}" x2="${W - R}" y1="${y(g).toFixed(1)}" y2="${y(g).toFixed(1)}"></line>
-        <text class="projection__ylabel" x="${W - R + 6}" y="${(y(g) + 4).toFixed(1)}">${g === target ? `目标 ${formatWan(g)}` : formatWan(g)}</text>`)}
+        <text class="projection__ylabel" x="${W - R + 7}" y="${(y(g) + 3.5).toFixed(1)}">${g === target ? `目标 ${formatWan(g)}` : formatWan(g)}</text>`)}
       <line class="projection__target" x1="${L}" x2="${W - R}" y1="${y(target).toFixed(1)}" y2="${y(target).toFixed(1)}"></line>
       ${area ? html`<polygon class="projection__band" points="${area}"></polygon>
         <polyline class="projection__edge projection__edge--high" points="${pts(band, 'high')}"></polyline>
-        <polyline class="projection__edge projection__edge--low" points="${pts(band, 'low')}"></polyline>` : ''}
+        <polyline class="projection__edge projection__edge--low" points="${pts(band, 'low')}"></polyline>
+        <circle class="projection__end" cx="${x(last.t).toFixed(1)}" cy="${y(last.high).toFixed(1)}" r="3"></circle>
+        <circle class="projection__end" cx="${x(last.t).toFixed(1)}" cy="${y(last.low).toFixed(1)}" r="3"></circle>` : ''}
+      ${todayT !== null ? html`<line class="projection__today" x1="${x(todayT).toFixed(1)}" x2="${x(todayT).toFixed(1)}" y1="${T}" y2="${T + ph}"></line>` : ''}
       ${actual.length > 1 ? html`<polyline class="projection__actual" points="${pts(actual, 'value')}"></polyline>` : ''}
       ${actual.length ? html`<circle class="projection__dot" cx="${x(actual[actual.length - 1].t).toFixed(1)}" cy="${y(actual[actual.length - 1].value).toFixed(1)}" r="4.5"></circle>` : ''}
-      ${todayT !== null ? html`<line class="projection__today" x1="${x(todayT).toFixed(1)}" x2="${x(todayT).toFixed(1)}" y1="${T}" y2="${T + ph}"></line>` : ''}
-      ${ticks.map((t) => html`<text class="projection__xlabel" x="${x(t).toFixed(1)}" y="${H - 8}" text-anchor="${t === 0 ? 'start' : t === years ? 'end' : 'middle'}">${yearLabel(t)}</text>`)}
+      ${ticks.map((t) => html`<text class="projection__xlabel" x="${x(t).toFixed(1)}" y="${H - 7}" text-anchor="${t === 0 ? 'start' : t === years ? 'end' : 'middle'}">${yearLabel(t)}</text>`)}
     </svg>
     <figcaption class="legend legend--projection">
       <span class="legend__item"><span class="legend__swatch legend__swatch--band"></span>预测区间</span>
@@ -189,14 +267,14 @@ export function projectionChart({ band, actual = [], target, years, yearLabel, t
   </figure>`;
 }
 
-/** Month-over-month change per category. rows: [{ label, delta, current, previous }]. */
+/** Change per category against the period before. rows: [{ label, delta, current, previous }]. */
 export function divergeList(rows) {
   const maxAbs = Math.max(1, ...rows.map((r) => Math.abs(r.delta)));
   return html`<ul class="diverge">
-    ${rows.map((r) => {
+    ${rows.map((r, i) => {
       const w = pct((Math.abs(r.delta) / maxAbs) * 0.5);
       const up = r.delta > 0;
-      return html`<li class="diverge__row">
+      return html`<li class="diverge__row" style="--i:${i}">
         <span class="diverge__label">${r.label}</span>
         <span class="diverge__track">
           <span class="diverge__axis"></span>
