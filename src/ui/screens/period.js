@@ -103,8 +103,12 @@ function outlookNote(b, o, target) {
   const rm = (c) => formatMoney(c, { round: true });
   const { soFar, days: daysAfter } = o;
   const room = soFar + o.incomeAhead - o.fixedAhead - target; // what the days left may spend and still reach the target
+  // The estimate only knows the income already recorded. With less in than the plan expects, say so: it is early
+  // in the period, not a verdict.
+  const awaited = b.usesExpected && b.incomeBasis > o.income ? b.incomeBasis - o.income : 0;
   return html`<ul class="info-list">
     <li>${icon('calendar')}<span>这是到${dayLabel(b.period.end)}的估计，不是现在已经差的钱：${THIS}到今天收入减支出是 ${rm(soFar)}${o.incomeAhead ? `，另有固定收入 ${rm(o.incomeAhead)} 还没到` : ''}；接下来还要付固定支出 ${rm(o.fixedAhead)}，剩下 ${daysAfter} 天按最近每天约 ${rm(daysAfter ? Math.round(o.dayToDay / daysAfter) : 0)} 的日常开销算，大约 ${rm(o.dayToDay)}。</span></li>
+    ${awaited > 0 ? html`<li>${icon('salary')}<span>只算已经记下的收入：${THIS}目前 ${rm(o.income - o.incomeAhead)}，计划是 ${rm(b.incomeBasis)}。之后每记一笔收入，预计结余就跟着增加。</span></li>` : ''}
     ${target > 0 && daysAfter > 0 ? html`<li>${icon('target')}<span>${room > 0
       ? `想达成存款目标 ${rm(target)}，接下来 ${daysAfter} 天的日常开销平均每天约 ${rm(Math.floor(room / daysAfter))} 以内。`
       : `扣掉固定支出后，就算接下来一分钱都不花，${THIS}也存不到目标 ${rm(target)}。`}</span></li>` : ''}

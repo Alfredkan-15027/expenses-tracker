@@ -21,7 +21,7 @@ import { openCashSheet, currentCash } from '../sheets/cash.js';
 import { dayLabel } from '../../core/dates.js';
 import { infoButton, infoPanel } from '../info.js';
 
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.5.1';
 
 let lockInfo = { enabled: false, pinLength: 6, autoLockMs: 60_000, biometric: false };
 let faceIdAvailable = false;

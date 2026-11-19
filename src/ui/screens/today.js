@@ -7,7 +7,7 @@ import { dailyBudget, quickPicks } from '../../core/analysis.js';
 import { infoButton, infoPanel } from '../info.js';
 import { categoryMap, unknownCategory } from '../../core/categories.js';
 import { formatMoney } from '../../core/money.js';
-import { addDays, dayLabel, longDateLabel, timeGreeting } from '../../core/dates.js';
+import { addDays, dayLabel, longDateLabel, timeGreeting, todayISO } from '../../core/dates.js';
 import { cycleNote } from '../../core/periods.js';
 import { txRow } from './shared.js';
 import { openPlanSheet } from '../sheets/plan.js';
@@ -46,7 +46,7 @@ const screen = {
     const recent = recentEntries(state.transactions, today);
     const month = addDays(today, -PICK_DAYS);
     screen.picks = quickPicks(state.transactions.filter((t) => t.date > month), today, PICK_LIMIT);
-    const h = hero(b, cycleNote(b.period, state.transactions, today));
+    const h = hero(b, cycleNote(b.period, state.transactions, today), today);
 
     return html`
       <section class="scene scene--today" data-tone="${h.tone}">
@@ -162,7 +162,7 @@ function banners(state, demo) {
  * The scene's figure and what belongs to it: { tone, level (0 → 1 of today's allowance still there: the water),
  * figure (in the scene), notes (the first thing on the panel: warnings, and how the figure was worked out behind ⓘ) }.
  */
-function hero(b, cycleLine = '') {
+function hero(b, cycleLine = '', today = todayISO()) {
   if (b.status === 'none') {
     return {
       tone: 'calm', level: 0.56, notes: '',
@@ -199,18 +199,23 @@ function hero(b, cycleLine = '') {
   // Warnings stay in view; how the figure was worked out folds behind the ⓘ beside the label.
   const lines = [
     html`<li>${icon('target')}<span>每日额度 ${formatMoney(Math.max(0, b.allowanceToday))}，今天已花 ${formatMoney(b.shownToday)}。</span></li>`,
-    cashLimit && !overPeriod ? html`<li>${icon('wallet')}<span>按${WHAT}算：约 ${usable}${keptNote}，扣掉${THIS}还要付的固定支出 ${formatMoney(b.reservedAll, { round: true })}，平均到剩下 ${b.daysLeft} 天。比按预算算的少，所以按这个。</span></li>` : '',
+    cashLimit && !overPeriod ? html`<li>${icon('wallet')}<span>按${WHAT}算：约 ${usable}${keptNote}，${b.reservedAll > 0 ? `扣掉${THIS}还要付的固定支出 ${formatMoney(b.reservedAll, { round: true })}，` : ''}平均到剩下 ${b.daysLeft} 天。比按预算算的少，所以按这个。</span></li>` : '',
     cycleLine ? html`<li>${icon('calendar')}<span>${cycleLine}</span></li>` : '',
     b.prorated ? html`<li>${icon('info')}<span>从${dayLabel(b.startDate)}开始记录，${THIS}预算已按剩余天数折算为 ${formatMoney(b.budget, { round: true })}${b.fixedTracked > 0 ? `（这之后才扣的固定支出 ${formatMoney(b.fixedTracked, { round: true })} 全额算在内）` : ''}</span></li>` : '',
     !cashLimit && b.reserved > 0 ? html`<li>${icon('clock')}<span>已预留${THIS}未到期的固定支出 ${formatMoney(b.reserved, { round: true })}</span></li>` : '',
-    b.nextIncomeBills > 0 ? html`<li>${icon('calendar')}<span>${dayLabel(addDays(b.billsUntil, 1))}起到期的固定支出约 ${formatMoney(b.nextIncomeBills, { round: true })}（例如房租）留给下次收入付，不从现在的钱里预留</span></li>` : '',
+    b.nextIncomeBills > 0 ? html`<li>${icon('calendar')}<span>${addDays(b.billsUntil, 1) > today ? `${dayLabel(addDays(b.billsUntil, 1))}起到期` : `到${dayLabel(b.period.end)}还要扣`}的固定支出约 ${formatMoney(b.nextIncomeBills, { round: true })}（例如房租）留给下次收入付，不从现在的钱里预留</span></li>` : '',
     b.fixedToday > 0 ? html`<li>${icon('clock')}<span>今天的固定支出 ${formatMoney(b.fixedToday, { round: true })} 已提前预留，不占今天的额度</span></li>` : '',
     b.spentBusiness > 0 ? html`<li>${icon('business')}<span>${b.countsBusiness
       ? `${THIS}已花 ${formatMoney(allRM * 100, { round: true })}：个人 ${formatMoney((allRM - bizRM) * 100, { round: true })} + 创业 ${formatMoney(bizRM * 100, { round: true })}（都算进预算）`
       : `${THIS}创业支出 ${formatMoney(b.spentBusiness, { round: true })} 不占预算（个人 ${formatMoney(personal, { round: true })}）`}</span></li>` : '',
   ].filter(Boolean);
+  const short = formatMoney(-b.leftMonth, { round: true });
   const warning = cashLimit && overPeriod
-    ? `${WHAT}约 ${usable}${keptNote}，不够付到${dayLabel(b.period.end)}还要扣的固定支出 ${formatMoney(b.reservedAll, { round: true })}，还差 ${formatMoney(-b.leftMonth, { round: true })}。`
+    ? (b.reservedAll > 0
+      ? `${WHAT}约 ${usable}${keptNote}，不够付到${dayLabel(b.period.end)}还要扣的固定支出 ${formatMoney(b.reservedAll, { round: true })}，还差 ${short}。`
+      // nothing more is due: the money itself has run out (a bill came out before the next income did)
+      : kept ? `能用的钱已经用完，按记录还动用了存款 ${short}（原本留着不动用的 ${formatMoney(kept, { round: true })}）。下次收入进来后会补回。`
+        : `按记录，手上的钱已经用完，还差 ${short}。`)
     : overPeriod ? (overAhead
       ? `已花的加上还没扣的固定支出，超过了${THIS}预算，接下来每一笔都会动用存款目标。`
       : `${THIS}预算已用完，接下来每一笔都会动用存款目标。`) : '';
