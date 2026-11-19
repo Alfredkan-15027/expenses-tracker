@@ -86,7 +86,7 @@ npm run dev
 - **主按钮是墨色，不是彩色**：`.btn--primary`、选中的分段、选中的 chip、dock 上选中的那一页都用 `--ink`（浅色模式近黑、深色模式近白）配 `--on-ink`。颜色留给数据。
 - **数字用圆体**：金额、标题用 `--font-round`（iPhone 上是 SF Pro Rounded）。
 - **类别图标是「同色淡底 + 同色图形」的圆**（`--cat-wash`、`--cat-ink`），不是实色方块，长列表更安静。
-- **Dock**：一条玻璃胶囊，四个页面 + 中间的「＋」，**只有图标，没有文字**（名称留在 `aria-label`）。选中页是一颗墨色的圆（`.dock__lens::after`，位置由 `main.js` 写 `--lens-x`／`--lens-w`），图标反白；「＋」用这一页的场景色（`--scene-a`／`--scene-b`）。手指按住 dock 横向滑动时（`.is-dragging`）镜片变大并跟着手指，手指下的那一项抬起（`.is-under`），松手就切到那一页。
+- **Dock**：一条玻璃胶囊，四个页面 + 中间的「＋」，**只有图标，没有文字**（名称留在 `aria-label`）。选中页是一颗墨色的圆（`.dock__lens::after`，位置由 `main.js` 写在镜片自己身上的 `--lens-x`／`--lens-w`；拖动时每一帧由 JS 移动，所以 `.is-dragging` 下不要给它的 `transform` 加 transition，镜片要保持 `will-change: transform`），图标反白；「＋」用这一页的场景色（`--scene-a`／`--scene-b`）。手指按住 dock 横向滑动时（`.is-dragging`）镜片变大并跟着手指，手指下的那一项抬起（`.is-under`），松手就切到那一页。
 - **为什么不直接用 liquid-glass-react／liquid-glass-js**：它们靠 SVG 位移滤镜或 WebGL + html2canvas 做折射，iPhone 的 Safari 不支持前者，后者要从 CDN 载入脚本（本 App 的 CSP 禁止外部资源）。所以这里取它们的想法（会跟手的弹性镜片、高光）用纯 CSS 变量实现；中间凸起的「＋」这个布局来自 CYLTabBarController。
 
 **干净（1.5 第二轮起的硬规矩）**
