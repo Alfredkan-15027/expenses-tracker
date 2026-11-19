@@ -366,6 +366,20 @@ export function periodBudget({ txs, settings, period: p, recurring = [] }) {
 }
 
 /**
+ * The last day whose fixed bills the running period's money must cover. In a running pay cycle, bills due inside the
+ * next pay window are left to the next income, which arrives in that window — rent due on the 19th is paid from the
+ * pay that comes on the 14th–20th, not saved up from this period's money (and not set aside twice). Once the window
+ * has begun with no income yet, they are this period's again.
+ */
+export function billsHorizon(p, settings, today) {
+  const cfg = p.kind === 'cycle' && p.open ? payCycle(settings) : null;
+  if (!cfg) return p.end;
+  const payday = addDays(expectedEnd(p.start, cfg), 1); // the last day of the next window
+  const windowStart = dateInMonth(monthOf(payday), cfg.from);
+  return today < windowStart ? addDays(windowStart, -1) : p.end;
+}
+
+/**
  * Budget for the current period (calendar month, or pay cycle when set): how much can be spent in total
  * and today. budget = income basis − savings target; income basis = expected income, or actual income
  * in the period if not set.
@@ -405,7 +419,10 @@ export function dailyBudget({ txs, settings, recurring = [], today, cash = null 
   }
   const spentBefore = spentMonth - spentToday;
   const spentTodayFree = spentToday - fixedToday;
-  const reserved = upcomingRecurring(countsBusiness ? recurring : recurring.filter((r) => !isBusinessItem(r)), today, p.end, 'expense', txs);
+  // Fixed bills still to pay from this period's money; those due in the next pay window wait for the next income.
+  const billsUntil = billsHorizon(p, settings, today);
+  const reserved = upcomingRecurring(countsBusiness ? recurring : recurring.filter((r) => !isBusinessItem(r)), today, billsUntil, 'expense', txs);
+  const nextIncomeBills = billsUntil < p.end ? upcomingRecurring(recurring, today, p.end, 'expense', txs) - upcomingRecurring(recurring, today, billsUntil, 'expense', txs) : 0;
   const remainingAtStart = budget - spentBefore - fixedToday - reserved;
   let allowanceToday = Math.floor(remainingAtStart / daysLeft);
   let leftMonth = budget - spentMonth - reserved;
@@ -418,7 +435,7 @@ export function dailyBudget({ txs, settings, recurring = [], today, cash = null 
   let cashLeft = null;
   let reservedAll = reserved;
   if (cash && hasPlan) {
-    reservedAll = upcomingRecurring(recurring, today, p.end, 'expense', txs);
+    reservedAll = upcomingRecurring(recurring, today, billsUntil, 'expense', txs);
     cashLeft = (cash.spendable ?? cash.balance) - reservedAll; // savings kept aside are not spending money
     const cashToday = cash.todayOut - (countsBusiness ? 0 : cash.todayOutBiz || 0);
     const cashAllowance = Math.floor((cashLeft + cashToday) / daysLeft);
@@ -438,7 +455,7 @@ export function dailyBudget({ txs, settings, recurring = [], today, cash = null 
     countsBusiness, spentToday, spentTodayFree, fixedToday, spentMonth, spentBusiness,
     spentAll: spentMonth + (countsBusiness ? 0 : spentBusiness),
     reserved, daysLeft, dim, day,
-    cash, limit, cashLeft, reservedAll, shownToday,
+    cash, limit, cashLeft, reservedAll, shownToday, billsUntil, nextIncomeBills,
     allowanceToday, leftToday, leftMonth,
     // A RM 0 budget (savings target = income) is used up by the first ringgit.
     usedRatio: budget > 0 ? (spentMonth + reserved) / budget : spentMonth + reserved > 0 ? Infinity : 0,
@@ -695,7 +712,7 @@ export function periodOutlook({ txs, period: p, settings, today, recurring = [],
   const incomeAhead = upcomingRecurring(recurring.filter((r) => !startsCycle(r)), today, p.end, 'income');
   const income = summary.income + incomeAhead;
   if (income <= 0) return null;
-  const fixedAhead = upcomingRecurring(model.handRent ? [...recurring, model.handRent] : recurring, today, p.end, 'expense', txs);
+  const fixedAhead = upcomingRecurring(model.handRent ? [...recurring, model.handRent] : recurring, today, billsHorizon(p, settings, today), 'expense', txs);
   const days = daysBetween(today, p.end); // after today
   const dayToDay = Math.round(model.variableDaily * days);
   const net = summary.net + incomeAhead - fixedAhead - dayToDay;
@@ -761,7 +778,7 @@ export function buildInsights({ txs, ym, period, categories, profile, settings, 
   const flagged = ev.rows.filter((r) => r.status === 'high' || r.status === 'over' || r.status === 'pace');
   // Categories without a reference range (added by hand) are never flagged — which doesn't make them "in range".
   const unranged = ev.rows.filter((r) => !r.range && r.categoryId !== 'insurance' && figure(r) > 0).sort((a, b) => figure(b) - figure(a));
-  const insuranceText = ev.insurance > 0 ? `（保险 ${formatMoney(ev.insurance, { round: true })}${ev.model ? '／月' : ''}另计）` : '';
+  const insuranceText = ev.insurance > 0 ? `（保险 ${formatMoney(ev.insurance, { round: true })}${ev.model ? '／月' : ''} 另计）` : '';
   const amountText = ev.model
     ? `按固定项目加上近 ${ev.model.days} 天的日常开销，每月个人生活费约 ${formatMoney(ev.perMonth, { round: true })}${insuranceText}${ev.model.steady ? '' : `（才记了 ${ev.model.days} 天，仅供参考）`}`
     : ev.isPartial
