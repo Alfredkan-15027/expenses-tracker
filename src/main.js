@@ -7,6 +7,7 @@ import { haptic } from './ui/haptics.js';
 import { toast, closeAllSheets, confirmDialog } from './ui/overlays.js';
 import { animateChanges, markFresh, collapse } from './ui/motion.js';
 import { onInfoClick } from './ui/info.js';
+import { holdWater } from './ui/water.js';
 import { openEntrySheet, quickAdd } from './ui/sheets/entry.js';
 import { showLockScreen } from './ui/sheets/lockscreen.js';
 import { openOnboarding } from './ui/sheets/onboarding.js';
@@ -70,31 +71,57 @@ function renderShell() {
 }
 
 // ── The dock's lens ─────────────────────────────────────────────────────────
-// A brighter drop of glass sits under the selected tab. Put a finger on the dock and slide: the lens swells and
-// follows the finger, the tab under it lifts, and letting go opens that tab — the way the iOS tab bar does it
+// A disc of ink sits under the selected tab. Put a finger on the dock and slide: the lens swells and follows the
+// finger, the tab under it lifts, and letting go opens that tab — the way the iOS tab bar does it
 // (the idea of a tab bar with a raised middle button is CYLTabBarController's; the lens that stretches towards the
 // finger is liquid-glass-react's "elasticity", done here with plain CSS variables so it runs on iPhone Safari).
+// The lens is moved through --lens-x / --lens-w on the lens itself (its own layer: only it is restyled, nothing is
+// laid out or painted again).
+
+const $lens = () => $dock()?.querySelector('.dock__lens');
 
 function placeLens() {
   const bar = $dock();
-  if (!bar) return;
+  const lens = $lens();
+  if (!bar || !lens) return;
   const active = bar.querySelector('.dock__item.is-active');
   bar.classList.toggle('has-lens', !!active);
   if (!active) return;
-  bar.style.setProperty('--lens-x', `${active.offsetLeft}px`);
-  bar.style.setProperty('--lens-w', `${active.offsetWidth}px`);
+  lens.style.setProperty('--lens-x', `${active.offsetLeft}px`);
+  lens.style.setProperty('--lens-w', `${active.offsetWidth}px`);
 }
 
 let dockSwallowsClick = false;
 function enableDockDrag() {
   const bar = $dock();
+  const lens = $lens();
+  const FOLLOW_MS = 34; // how closely the lens trails the finger: a short glide, never a lag
   let pointer = null, startX = 0, dragging = false, under = null;
-  const items = () => [...bar.querySelectorAll('.dock__item')];
-  const nearest = (x) => items().reduce((best, el) => {
-    const r = el.getBoundingClientRect();
-    const d = Math.abs(x - (r.left + r.width / 2));
-    return !best || d < best.d ? { el, d } : best;
-  }, null)?.el;
+  let geo = null;                         // measured once when a slide begins: nothing is read from the page while it runs
+  let x = 0, goal = 0, raf = 0, last = 0;
+
+  const measure = () => {
+    const r = bar.getBoundingClientRect();
+    const items = [...bar.querySelectorAll('.dock__item')];
+    const w = items[0].offsetWidth;
+    const active = bar.querySelector('.dock__item.is-active');
+    return {
+      left: r.left, w, min: 5, max: r.width - w - 5,
+      from: active ? active.offsetLeft : null,
+      items: items.map((el) => ({ el, mid: el.offsetLeft + el.offsetWidth / 2 })),
+    };
+  };
+  // One write a frame, to the lens alone; it eases towards the finger so sparse touch events still move it evenly.
+  const follow = (now) => {
+    raf = 0;
+    if (!dragging) return;
+    const dt = last ? Math.min(64, now - last) : 16;
+    last = now;
+    x += (goal - x) * (1 - Math.exp(-dt / FOLLOW_MS));
+    if (Math.abs(goal - x) < 0.4) x = goal;
+    lens.style.setProperty('--lens-x', `${x.toFixed(1)}px`);
+    if (x !== goal) raf = requestAnimationFrame(follow);
+  };
 
   bar.addEventListener('pointerdown', (e) => {
     if (!e.target.closest('.dock__item')) return;
@@ -105,34 +132,53 @@ function enableDockDrag() {
     if (!dragging) {
       if (Math.abs(e.clientX - startX) < 8) return;
       dragging = true;
+      geo = measure();
       try { bar.setPointerCapture(pointer); } catch { /* the pointer is already gone */ }
+      goal = clamp(e.clientX - geo.left - geo.w / 2, geo.min, geo.max);
+      x = geo.from ?? goal;
+      last = 0;
+      lens.style.setProperty('--lens-w', `${geo.w}px`);
+      lens.style.setProperty('--lens-x', `${x.toFixed(1)}px`);
       bar.classList.add('is-dragging', 'has-lens');
+      holdWater(true); // the finger gets every frame
     }
-    const r = bar.getBoundingClientRect();
-    const w = items()[0].offsetWidth;
-    bar.style.setProperty('--lens-w', `${w}px`);
-    bar.style.setProperty('--lens-x', `${clamp(e.clientX - r.left - w / 2, 5, r.width - w - 5)}px`);
-    const el = nearest(e.clientX);
+    const at = e.clientX - geo.left;
+    goal = clamp(at - geo.w / 2, geo.min, geo.max);
+    let el = null, best = Infinity;
+    for (const it of geo.items) {
+      const d = Math.abs(at - it.mid);
+      if (d < best) { best = d; el = it.el; }
+    }
     if (el !== under) {
       under?.classList.remove('is-under');
       el?.classList.add('is-under');
       under = el;
       haptic();
     }
+    if (!raf) raf = requestAnimationFrame(follow);
   });
   const end = (e) => {
     if (e.pointerId !== pointer) return;
     pointer = null;
     if (!dragging) return;
     dragging = false;
+    cancelAnimationFrame(raf);
+    raf = 0;
+    holdWater(false);
     bar.classList.remove('is-dragging');
     under?.classList.remove('is-under');
     dockSwallowsClick = true;
     setTimeout(() => { dockSwallowsClick = false; }, 350);
-    const id = under?.dataset.tab;
+    // a slide the system took away (pointercancel) opens nothing
+    const el = e.type === 'pointerup' ? under : null;
     under = null;
-    if (id && id !== app.current) location.hash = `#/${id}`;
-    else placeLens();
+    const id = el?.dataset.tab;
+    if (id && id !== app.current) {
+      lens.style.setProperty('--lens-x', `${el.offsetLeft}px`); // the lens settles at once; the page follows
+      location.hash = `#/${id}`;
+    } else {
+      placeLens();
+    }
   };
   bar.addEventListener('pointerup', end);
   bar.addEventListener('pointercancel', end);
