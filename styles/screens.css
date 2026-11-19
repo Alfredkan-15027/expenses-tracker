@@ -104,8 +104,10 @@ html[data-screen="today"]:has(.scene--today[data-tone="bad"]) { --scene-a: var(-
 .cash-tile__cta { font: var(--text-headline); color: var(--accent-ink); flex: none; }
 
 /* 常用: the things bought most this month — one tap records one again */
-.picks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+/* one to four of them share the row evenly (a lone one stays half as wide) */
+.picks { display: flex; gap: 10px; }
 .pick {
+  flex: 1 1 0; max-width: calc((100% - 10px) / 2);
   padding: 14px 6px 12px; border-radius: var(--radius-lg); min-width: 0;
   display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center;
   background: var(--surface); box-shadow: var(--surface-rim), var(--surface-shadow);

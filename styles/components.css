@@ -83,8 +83,9 @@
 
 /* ── The dock ───────────────────────────────────────────────────────────────
    A capsule of glass with the four places, icons only, and 记一笔 in the middle. The lens — a disc of ink — rests
-   under the selected place; main.js sets --lens-x / --lens-w, and while a finger slides along the dock
-   (.is-dragging) the lens swells and follows it, and the place under it (.is-under) lifts. */
+   under the selected place; main.js sets --lens-x / --lens-w on the lens, and while a finger slides along the
+   dock (.is-dragging) the lens swells and follows it, and the place under it (.is-under) lifts. While it follows,
+   main.js moves it every frame: no transition on its transform then, or the two would fight. */
 .dock {
   position: fixed;
   z-index: 45;
@@ -119,7 +120,8 @@
   width: var(--lens-w);
   display: grid;
   place-items: center;
-  transform: translateX(var(--lens-x));
+  transform: translate3d(var(--lens-x), 0, 0);
+  will-change: transform;
   opacity: 0;
   transition: transform 560ms var(--ease-spring), width 560ms var(--ease-spring), opacity var(--dur) ease;
 }
@@ -133,7 +135,7 @@
   transition: scale 360ms var(--ease-pop);
 }
 .dock__bar.has-lens .dock__lens { opacity: 1; }
-.dock__bar.is-dragging .dock__lens { transition: transform 90ms linear, opacity var(--dur) ease; }
+.dock__bar.is-dragging .dock__lens { transition: opacity var(--dur) ease; }
 .dock__bar.is-dragging .dock__lens::after { scale: 1.16; }
 .dock__item {
   position: relative;
@@ -144,6 +146,7 @@
   border-radius: var(--radius-pill);
   color: var(--label-2);
   transition: color var(--dur) ease;
+  -webkit-user-drag: none; /* a slide along the dock is not "drag this link" */
 }
 .dock__icon { font-size: 24px; display: flex; transition: transform var(--dur-pop) var(--ease-pop), color var(--dur) ease; }
 .dock__item:active .dock__icon { transform: scale(0.86); }
