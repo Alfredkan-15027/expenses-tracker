@@ -56,8 +56,14 @@ test('daily budget runs from payday to the day before the next one', () => {
   assert.equal(b.budget, RM(4000));
   assert.equal(b.spentMonth, RM(1020));
   assert.equal(b.daysLeft, 26);              // 24 Sep … 19 Oct
-  assert.equal(b.reserved, RM(60));          // utilities on 15 Oct falls inside; rent on 20 Oct is the next cycle's
-  assert.equal(b.allowanceToday, Math.floor((RM(4000) - RM(1000) - RM(60)) / 26));
+  // Bills due in the next pay window (15–20 Oct) are paid from the next income: none set aside from this cycle
+  assert.equal(b.reserved, 0);
+  assert.equal(b.nextIncomeBills, RM(60));
+  assert.equal(b.allowanceToday, Math.floor((RM(4000) - RM(1000)) / 26));
+  // … until the window begins without the income: then they are this cycle's to pay again
+  const late = dailyBudget({ txs, settings, recurring: rec, today: '2026-10-15' });
+  assert.equal(late.period.start, '2026-09-15');
+  assert.equal(late.billsUntil, late.period.end);
 });
 
 test('cycles are compared with the monthly reference per 30 days', () => {

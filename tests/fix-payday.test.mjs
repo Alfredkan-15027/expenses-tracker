@@ -118,7 +118,7 @@ test('insurance is protection: its own row, out of the living cost and of the �
   assert.equal(ev.rows.find((r) => r.categoryId === 'health').status, 'ok'); // a clinic visit is not "偏高"
   const ins = buildInsights({ txs: withClinic, period: cur, categories: DEFAULT_CATEGORIES, profile: {}, settings, today: '2026-11-14', recurring });
   assert.ok(!ins.some((i) => i.id === 'cat-health' || i.id === 'cat-insurance'));
-  assert.match(ins.find((i) => i.id === 'verdict').body, /保险 RM 250／月另计/);
+  assert.match(ins.find((i) => i.id === 'verdict').body, /保险 RM 250／月 另计/);
   const page = text(insights.render({ state: { ...state, transactions: withClinic }, today: '2026-11-14' }));
   assert.match(page, /保险 保障，不算进生活费评估/);
   assert.match(page, /也不含保险（每月 RM 250）/);
