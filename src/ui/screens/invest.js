@@ -1,6 +1,7 @@
-// 投资 — RM 1,750,000 in 10 years: plan, projection band (8–10%), actual performance and holdings.
-import { html, icon, catIcon, money } from '../html.js';
-import { progress, projectionChart } from '../charts.js';
+// 投资 — RM 1,750,000 in 10 years. The scene is the goal as a wide arc (how far, and how much of the time is gone).
+// On the panel: the plan, the projection band (8–10%), actual performance and the holdings.
+import { html, icon, catIcon, money, facts } from '../html.js';
+import { progress, projectionChart, goalArc, stackBar } from '../charts.js';
 import { statusBadge } from './shared.js';
 import { infoButton, infoPanel } from '../info.js';
 import {
@@ -93,115 +94,125 @@ const screen = {
     const holdings = state.holdings.filter((h) => !h.archived).sort((a, b) => a.order - b.order);
     const pf = st.portfolio;
 
+    const bad = st.status === 'behind' || st.status === 'missed';
+
     return html`
-      <header class="screen__header">
-        <p class="eyebrow">${years} 年目标 · 年回报假设 ${pct(p.rateLow)}–${pct(p.rateHigh)}</p>
-        <h1 class="large-title">投资</h1>
-      </header>
-
-      <section class="card card--goal" data-status="${st.status}">
-        <div class="goal-card__head">
-          <span class="card__eyebrow">${icon('target')} 目标 ${formatMoney(p.target, { round: true })}</span>
-          ${statusPill(st.status)}
-        </div>
-        <div class="hero-amount">${money(st.current, { cls: 'money--hero' })}</div>
-        ${progress({ ratio: st.progress, marker: st.started ? Math.min(1, st.elapsedYears / years) : null, tone: 'save', label: '目标完成度' })}
-        <div class="hero-foot">
-          <span>完成 <strong>${progressPct(st.progress)}</strong></span>
-          <span>${st.started ? `${timeLeft(today, st.deadline)} · ${dayLabel(st.deadline)}到期` : '从第一次投入开始计时'}</span>
-        </div>
-      </section>
-
-      ${st.started ? '' : triggerCard(st)}
-      ${st.started && st.valuationAgeDays !== null && st.valuationAgeDays > 45 ? html`
-        <button type="button" class="banner banner--warn" data-invest="value">
-          <span class="banner__icon">${icon('trendUp')}</span>
-          <span class="banner__text"><strong>市值已经 ${st.valuationAgeDays} 天没更新</strong><span>更新后，进度和实际回报才准确</span></span>
-          ${icon('chevron-right', 'banner__chevron')}
-        </button>` : ''}
-
-      <section class="section">
-        <div class="section__header">
-          <h2 class="section__title">计划 ${infoButton('inv-plan')}</h2>
-          <button type="button" class="link" data-invest="plan">调整</button>
-        </div>
-        ${infoPanel('inv-plan', html`<p>每${freq.short === '每年' ? '年' : freq.short === '每季' ? '季' : '月'}初投入、按年复利计算。回报率是假设，不是保证。</p>`)}
-        <div class="card card--plan">
-          <p class="plan__lead">要在${st.started ? '到期前' : ` ${years} 年内`}达到目标，${freq.label}需要投入：</p>
-          <div class="rate-table" role="table" aria-label="不同回报假设下每次需要投入的金额">
-            ${[['low', p.rateLow], ['mid', (p.rateLow + p.rateHigh) / 2], ['high', p.rateHigh]].map(([k, r]) => html`
-              <div class="rate-table__cell ${k === 'low' && st.usesRequired ? 'is-mid' : ''}" role="cell">
-                <span class="rate-table__rate">${pct(r)}</span>
-                <span class="rate-table__amount"><small>RM</small>${formatMoney(st.required[k], { round: true }).replace(/^RM\s/, '')}</span>
-              </div>`)}
+      <section class="scene scene--invest" data-status="${st.status}">
+        <div class="scene__content">
+          <header class="scene__top">
+            <p class="eyebrow">${years} 年目标 · 年回报假设 ${pct(p.rateLow)}–${pct(p.rateHigh)}</p>
+            <h1 class="large-title">投资</h1>
+          </header>
+          ${goalArc({
+            ratio: st.progress, marker: st.started ? Math.min(1, st.elapsedYears / years) : null, tone: bad ? 'bad' : 'save', label: '目标完成度',
+            center: html`${statusPill(st.status)}
+              <div class="scene__figure" data-motion="count" data-motion-key="invest" data-value="${st.current}">${money(st.current)}</div>
+              <p class="scene__sub">${facts(`目标 ${formatMoney(p.target, { round: true })}`, `完成 ${progressPct(st.progress)}`)}</p>`,
+          })}
+          <div class="goal-foot">
+            ${st.started ? html`<strong>${timeLeft(today, st.deadline)}</strong><span>${dayLabel(st.deadline)}到期</span>` : html`<span>从第一次投入开始计时</span>`}
           </div>
-          <ul class="plan__facts">
-            <li><span>你的计划</span><strong>${freq.short} ${formatMoney(st.planned, { round: true })}${st.usesRequired ? `（按 ${pct(p.rateLow)}）` : ''}</strong></li>
-            ${st.started && st.next ? html`<li><span>下次投入</span><strong>${st.next.now ? '本期还没投入' : dayLabel(st.next.date)} · 还剩 ${st.next.left} 次</strong></li>` : ''}
-            <li><span>到期预计</span><strong>${formatMoney(st.projected.low, { round: true })} – ${formatMoney(st.projected.high, { round: true })}</strong></li>
-            ${st.shareOfTriggerIncome !== null ? html`<li><span>约占月收入 ${formatMoney(p.triggerIncome, { round: true })} 的</span><strong>${formatPercent(st.shareOfTriggerIncome)}</strong></li>` : ''}
-          </ul>
         </div>
       </section>
 
-      <section class="section">
-        <h2 class="section__title">${st.started ? '走势与预测' : `${years} 年预测`}</h2>
-        <div class="card">
-          ${projectionChart({
-            band, actual, target: p.target, years,
-            todayT: st.started ? Math.min(years, st.elapsedYears) : null,
-            yearLabel: (t) => (st.started ? String(startYear + t) : t === 0 ? '现在' : `${t}年`),
-          })}
-          <table class="milestones">
-            <thead><tr><th>时间点</th><th>${pct(p.rateLow)}</th><th>${pct(p.rateHigh)}</th></tr></thead>
-            <tbody>
-              ${band.filter((b, i) => i > 0 && (Math.round(b.t) % Math.max(1, Math.floor(years / 3)) === 0 || i === band.length - 1)).map((b) => html`<tr>
-                <td>${st.started ? `${startYear + Math.round(b.t)} 年` : `第 ${Math.round(b.t)} 年`}</td>
-                <td>${formatMoney(b.low, { round: true })}</td>
-                <td>${formatMoney(b.high, { round: true })}</td>
-              </tr>`)}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <div class="panel">
+        ${st.started ? '' : triggerCard(st)}
+        ${st.started && st.valuationAgeDays !== null && st.valuationAgeDays > 45 ? html`
+          <button type="button" class="banner banner--warn" data-invest="value">
+            <span class="banner__icon">${icon('trendUp')}</span>
+            <span class="banner__text"><strong>市值已经 ${st.valuationAgeDays} 天没更新</strong><span>更新后，进度和实际回报才准确</span></span>
+            ${icon('chevron-right', 'banner__chevron')}
+          </button>` : ''}
 
-      ${st.started ? performanceCard(st, pf, p) : ''}
+        <section class="section">
+          <div class="section__header">
+            <h2 class="section__title">计划 ${infoButton('inv-plan')}</h2>
+            <button type="button" class="link" data-invest="plan">调整</button>
+          </div>
+          ${infoPanel('inv-plan', html`<p>每${freq.short === '每年' ? '年' : freq.short === '每季' ? '季' : '月'}初投入、按年复利计算。回报率是假设，不是保证。</p>`)}
+          <div class="card plan">
+            <p class="plan__lead">要在${st.started ? '到期前' : ` ${years} 年内`}达到目标，${freq.label}需要投入：</p>
+            <div class="rate-table" role="table" aria-label="不同回报假设下每次需要投入的金额">
+              ${[['low', p.rateLow], ['mid', (p.rateLow + p.rateHigh) / 2], ['high', p.rateHigh]].map(([k, r]) => html`
+                <div class="rate-table__cell ${k === 'low' && st.usesRequired ? 'is-mid' : ''}" role="cell">
+                  <span class="rate-table__rate">${pct(r)}</span>
+                  <span class="rate-table__amount"><small>RM</small>${formatMoney(st.required[k], { round: true }).replace(/^RM\s/, '')}</span>
+                </div>`)}
+            </div>
+            <ul class="plan__facts">
+              <li><span>你的计划</span><strong>${freq.short} ${formatMoney(st.planned, { round: true })}${st.usesRequired ? `（按 ${pct(p.rateLow)}）` : ''}</strong></li>
+              ${st.started && st.next ? html`<li><span>下次投入</span><strong>${st.next.now ? '本期还没投入' : dayLabel(st.next.date)} · 还剩 ${st.next.left} 次</strong></li>` : ''}
+              <li><span>到期预计</span><strong>${formatMoney(st.projected.low, { round: true })} – ${formatMoney(st.projected.high, { round: true })}</strong></li>
+              ${st.shareOfTriggerIncome !== null ? html`<li><span>约占月收入 ${formatMoney(p.triggerIncome, { round: true })} 的</span><strong>${formatPercent(st.shareOfTriggerIncome)}</strong></li>` : ''}
+            </ul>
+          </div>
+        </section>
 
-      <section class="section">
-        <div class="section__header">
-          <h2 class="section__title">持仓</h2>
-          ${holdings.length ? html`<button type="button" class="link" data-invest="value">更新市值</button>` : ''}
-        </div>
-        ${holdings.length ? html`<ul class="list">
-          ${holdings.map((h) => {
-            const s = holdingSummary(h.id, state.investFlows, state.valuations, today);
-            const weight = pf.value > 0 ? s.value / pf.value : 0;
-            const delta = s.gainRatio === null ? 0 : Math.round(s.gainRatio * 1000); // as shown, in 0.1%
-            return html`<li><button type="button" class="row row--holding" data-holding-id="${h.id}">
-              ${catIcon(holdingIcon(h))}
-              <span class="row__body">
-                <span class="row__title">${h.name}</span>
-                <span class="row__subtitle">${HOLDING_KINDS.find((k) => k.id === h.kind)?.label || '其他'} · 占 ${formatPercent(weight)}${s.lastValuationDate ? '' : ' · 未更新市值'}</span>
-              </span>
-              <span class="row__trail">
-                <span class="row__value">${formatMoney(s.value, { round: true })}</span>
-                ${s.gainRatio !== null ? html`<span class="delta ${delta < 0 ? 'is-down' : delta > 0 ? 'is-up' : ''}">${pct1(s.gainRatio, { sign: true })}</span>` : ''}
-              </span>
-              ${icon('chevron-right', 'row__chevron')}
-            </button></li>`;
-          })}
-        </ul>` : html`<div class="empty-state">
-          <span class="empty-state__icon">${icon('invest')}</span>
-          <h3>还没有持仓</h3>
-          <p>${st.started && state.holdings.some((h) => h.archived) ? '之前的持仓都已移除。新增持仓或记录投入，继续这个计划。'
-            : st.trigger.reached || !p.triggerIncome ? `记录第一笔投入，${years} 年计划就从那天开始。`
-            : '达到开始条件后，在这里记录第一笔投入。也可以先把打算投资的项目建好。'}</p>
-          <button type="button" class="btn btn--primary" data-invest="${st.trigger.reached || !p.triggerIncome ? 'first-in' : 'new-holding'}">${st.trigger.reached || !p.triggerIncome ? '记录第一笔投入' : '新增持仓'}</button>
-        </div>`}
-      </section>
+        <section class="section">
+          <h2 class="section__title">${st.started ? '走势与预测' : `${years} 年预测`}</h2>
+          <div class="card">
+            ${projectionChart({
+              band, actual, target: p.target, years,
+              todayT: st.started ? Math.min(years, st.elapsedYears) : null,
+              yearLabel: (t) => (st.started ? String(startYear + t) : t === 0 ? '现在' : `${t}年`),
+            })}
+            <table class="milestones">
+              <thead><tr><th>时间点</th><th>${pct(p.rateLow)}</th><th>${pct(p.rateHigh)}</th></tr></thead>
+              <tbody>
+                ${band.filter((b, i) => i > 0 && (Math.round(b.t) % Math.max(1, Math.floor(years / 3)) === 0 || i === band.length - 1)).map((b) => html`<tr>
+                  <td>${st.started ? `${startYear + Math.round(b.t)} 年` : `第 ${Math.round(b.t)} 年`}</td>
+                  <td>${formatMoney(b.low, { round: true })}</td>
+                  <td>${formatMoney(b.high, { round: true })}</td>
+                </tr>`)}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-      <p class="section__footer disclaimer">规划工具，不构成投资建议 ${infoButton('inv-disclaimer', '投资风险说明')}</p>
-      ${infoPanel('inv-disclaimer', html`<p>回报率是你的假设，实际回报可能更高、更低，也可能亏损；投资前请自行评估风险。</p>`, 'info-panel--center')}
+        ${st.started ? performanceCard(st, pf, p) : ''}
+
+        <section class="section">
+          <div class="section__header">
+            <h2 class="section__title">持仓</h2>
+            ${holdings.length ? html`<button type="button" class="link" data-invest="value">更新市值</button>` : ''}
+          </div>
+          ${holdings.length ? html`<div class="card card--flush holdings">
+            ${holdings.length > 1 && pf.value > 0 ? html`<div class="card__pad">${stackBar(holdings.map((h) => {
+              const hs = holdingSummary(h.id, state.investFlows, state.valuations, today);
+              return { id: h.id, value: Math.max(0, hs.value), color: holdingIcon(h).color, label: h.name };
+            }))}</div>` : ''}
+            <ul class="list list--plain">
+            ${holdings.map((h) => {
+              const s = holdingSummary(h.id, state.investFlows, state.valuations, today);
+              const weight = pf.value > 0 ? s.value / pf.value : 0;
+              const delta = s.gainRatio === null ? 0 : Math.round(s.gainRatio * 1000); // as shown, in 0.1%
+              return html`<li><button type="button" class="row row--holding" data-holding-id="${h.id}">
+                ${catIcon(holdingIcon(h))}
+                <span class="row__body">
+                  <span class="row__title">${h.name}</span>
+                  <span class="row__subtitle">${HOLDING_KINDS.find((k) => k.id === h.kind)?.label || '其他'} · 占 ${formatPercent(weight)}${s.lastValuationDate ? '' : ' · 未更新市值'}</span>
+                </span>
+                <span class="row__trail">
+                  <span class="row__value">${formatMoney(s.value, { round: true })}</span>
+                  ${s.gainRatio !== null ? html`<span class="delta ${delta < 0 ? 'is-down' : delta > 0 ? 'is-up' : ''}">${pct1(s.gainRatio, { sign: true })}</span>` : ''}
+                </span>
+                ${icon('chevron-right', 'row__chevron')}
+              </button></li>`;
+            })}
+            </ul>
+          </div>` : html`<div class="empty-state">
+            <span class="empty-state__icon">${icon('invest')}</span>
+            <h3>还没有持仓</h3>
+            <p>${st.started && state.holdings.some((h) => h.archived) ? '之前的持仓都已移除。新增持仓或记录投入，继续这个计划。'
+              : st.trigger.reached || !p.triggerIncome ? `记录第一笔投入，${years} 年计划就从那天开始。`
+              : '达到开始条件后，在这里记录第一笔投入。也可以先把打算投资的项目建好。'}</p>
+            <button type="button" class="btn btn--primary" data-invest="${st.trigger.reached || !p.triggerIncome ? 'first-in' : 'new-holding'}">${st.trigger.reached || !p.triggerIncome ? '记录第一笔投入' : '新增持仓'}</button>
+          </div>`}
+        </section>
+
+        <p class="section__footer disclaimer">规划工具，不构成投资建议 ${infoButton('inv-disclaimer', '投资风险说明')}</p>
+        ${infoPanel('inv-disclaimer', html`<p>回报率是你的假设，实际回报可能更高、更低，也可能亏损；投资前请自行评估风险。</p>`, 'info-panel--center')}
+      </div>
     `;
   },
 
@@ -223,8 +234,8 @@ function triggerCard(st) {
   const t = st.trigger;
   if (!t.threshold) return '';
   const best = Math.max(t.thisMonth, t.lastMonth);
-  return html`<section class="card card--trigger" data-reached="${t.reached}">
-    <div class="goal-card__head">
+  return html`<section class="card trigger" data-reached="${t.reached}">
+    <div class="trigger__head">
       <span class="card__eyebrow">${icon('salary')} 开始条件 ${t.reached ? '' : infoButton('inv-trigger')}</span>
       ${t.reached ? statusBadge('ok') : ''}
     </div>

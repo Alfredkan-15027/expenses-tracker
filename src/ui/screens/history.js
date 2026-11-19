@@ -1,13 +1,17 @@
-// 记录 — every entry for a month grouped by day, with search and type filter.
-import { html, icon } from '../html.js';
+// 记录 — kept quiet. The scene is the month: its total, and one bar per day (tap a day to see only that day). On the
+// panel one plain list, newest first — what, "类别 · 日期 时间", how much — a page at a time (查看更多). Search, the
+// type filter and "jump to a date" wait behind three small buttons.
+import { html, icon, money, facts } from '../html.js';
+import { dayBars } from '../charts.js';
 import { txRow, monthSwitcher } from './shared.js';
 import { categoryMap, unknownCategory } from '../../core/categories.js';
 import { formatMoney } from '../../core/money.js';
-import { dayLabel, monthOf, weekday } from '../../core/dates.js';
+import { dateInMonth, dayLabel, daysInMonth, isValidISODate, monthLabel, monthOf } from '../../core/dates.js';
 import { haptic } from '../haptics.js';
 
-const ui = { ym: null, query: '', filter: 'all' };
-const MAX_SEARCH_RESULTS = 300;
+const PAGE = 12;
+const ui = { ym: null, query: '', filter: 'all', day: '', searching: false, shown: PAGE };
+const FILTERS = [['all', '全部'], ['expense', '支出'], ['income', '收入']];
 
 const screen = {
   id: 'history',
@@ -16,6 +20,7 @@ const screen = {
   render({ state, today }) {
     const current = monthOf(today);
     if (!ui.ym || ui.ym > current) ui.ym = current;
+    if (ui.day && monthOf(ui.day) !== ui.ym) ui.day = '';
     const cats = categoryMap(state.categories);
     const q = ui.query.trim().toLowerCase();
     const searching = q.length > 0;
@@ -33,62 +38,84 @@ const screen = {
       list = list.filter((t) => monthOf(t.date) === ui.ym);
     }
     if (ui.filter !== 'all') list = list.filter((t) => t.type === ui.filter);
-    list = [...list].sort((a, b) => (a.date === b.date ? b.createdAt - a.createdAt : a.date < b.date ? 1 : -1));
-    // The summary covers every match; only the rows shown are capped.
+    const month = searching ? [] : monthDays(list, ui.ym, today);
+    // A picked day narrows everything below it: the figure and the rows.
+    if (!searching && ui.day) list = list.filter((t) => t.date === ui.day);
     const count = list.length;
     const expense = list.filter((t) => t.type === 'expense').reduce((a, t) => a + t.amount, 0);
     const income = list.filter((t) => t.type === 'income').reduce((a, t) => a + t.amount, 0);
-    const truncated = searching && count > MAX_SEARCH_RESULTS;
-    if (truncated) list = list.slice(0, MAX_SEARCH_RESULTS);
-
-    const groups = [];
-    for (const t of list) {
-      const g = groups[groups.length - 1];
-      if (g && g.date === t.date) g.items.push(t); else groups.push({ date: t.date, items: [t] });
-    }
+    list = [...list].sort((a, b) => (a.date === b.date ? b.createdAt - a.createdAt : a.date < b.date ? 1 : -1));
+    const rows = list.slice(0, ui.shown);
+    const incomeOnly = ui.filter === 'income';
+    const figure = incomeOnly ? income : expense;
+    const days = daysInMonth(ui.ym);
+    const what = incomeOnly ? '收入' : '支出';
 
     return html`
-      <header class="screen__header">
-        <h1 class="large-title">记录</h1>
-      </header>
-
-      <div class="toolbar">
-        <label class="search">
-          ${icon('search')}
-          <input class="search__input" type="search" name="q" placeholder="搜索备注、类别或金额" value="${ui.query}" autocomplete="off" enterkeyhint="search">
-        </label>
-        <div class="segmented segmented--small" role="tablist" aria-label="筛选">
-          ${[['all', '全部'], ['expense', '支出'], ['income', '收入']].map(([id, label]) => html`
-            <button type="button" role="tab" class="segmented__item ${ui.filter === id ? 'is-active' : ''}" data-filter="${id}" aria-selected="${ui.filter === id}">${label}</button>`)}
-        </div>
-      </div>
-
-      ${searching ? html`<p class="section__meta section__meta--block">在所有月份中找到 ${count} 笔${truncated ? `（下面只列出最近 ${MAX_SEARCH_RESULTS} 笔）` : ''}</p>` : monthSwitcher(ui.ym, current)}
-
-      <div class="summary-row">
-        <div class="summary-row__item"><span>支出</span><strong>${formatMoney(expense)}</strong></div>
-        <div class="summary-row__item"><span>收入</span><strong class="is-income">${formatMoney(income)}</strong></div>
-        <div class="summary-row__item"><span>笔数</span><strong>${count}</strong></div>
-      </div>
-
-      ${groups.length ? groups.map((g) => {
-        const dayExp = g.items.filter((t) => t.type === 'expense').reduce((a, t) => a + t.amount, 0);
-        return html`<section class="section section--day">
-          <div class="section__header">
-            <h2 class="section__title section__title--day">${dayLabel(g.date, today)} <span>${weekday(g.date)}</span></h2>
-            ${dayExp ? html`<span class="section__meta">${formatMoney(dayExp)}</span>` : ''}
+      <section class="scene scene--history">
+        <div class="scene__content">
+          <header class="scene__top">
+            <h1 class="large-title">记录</h1>
+          </header>
+          <div class="month">
+            ${searching ? '' : monthSwitcher(ui.ym, current)}
+            <div class="month__figure">
+              <span class="scene__label">${searching ? `在所有月份中找到 ${count} 笔 · ${what}` : ui.day ? `${dayLabel(ui.day, today)} · ${what}` : what}</span>
+              <div class="scene__figure ${incomeOnly ? 'is-income' : ''}" data-motion="count" data-motion-key="month" data-value="${figure}">${money(figure)}</div>
+              <p class="scene__sub">${facts(searching ? '' : `${count} 笔`, !incomeOnly && income ? `收入 ${formatMoney(income)}` : '')}</p>
+            </div>
+            ${searching ? '' : html`<div class="month__days">
+              ${dayBars(month, { selected: ui.day, tappable: true, label: `${monthLabel(ui.ym)}每天的${what}` })}
+              <div class="month__axis"><span>1</span><span>${Math.round(days / 2)}</span><span>${days}</span></div>
+            </div>`}
           </div>
-          <ul class="list">${g.items.map((t) => txRow(t, cats.get(t.categoryId) || unknownCategory(t.type)))}</ul>
-        </section>`;
-      }) : html`<div class="empty-state">
-          <span class="empty-state__icon">${icon(searching ? 'search' : 'list')}</span>
-          <h3>${searching ? '没有找到相关记录' : '这个月没有记录'}</h3>
-          <p>${searching ? '换个关键词试试。' : '记下的每一笔都会按日期出现在这里。'}</p>
-        </div>`}
+        </div>
+      </section>
+
+      <div class="panel">
+        <div class="toolbar">
+          <div class="segmented segmented--small" role="tablist" aria-label="筛选">
+            ${FILTERS.map(([id, label]) => html`
+              <button type="button" role="tab" class="segmented__item ${ui.filter === id ? 'is-active' : ''}" data-filter="${id}" aria-selected="${ui.filter === id}">${label}</button>`)}
+          </div>
+          <label class="tool" aria-label="只看某一天">
+            ${icon('calendar')}
+            <input class="chip__overlay" type="date" name="jump" value="${ui.day}" max="${today}" aria-label="只看某一天">
+          </label>
+          <button type="button" class="tool ${ui.searching || searching ? 'is-on' : ''}" data-search aria-label="搜索" aria-expanded="${ui.searching || searching}">${icon('search')}</button>
+        </div>
+
+        ${ui.searching || searching ? html`<label class="search">
+          ${icon('search')}
+          <input class="search__input" type="search" name="q" placeholder="备注、类别或金额" value="${ui.query}" autocomplete="off" enterkeyhint="search">
+        </label>` : ''}
+
+        ${!searching && ui.day ? html`<button type="button" class="chip chip--toggle is-on day-chip" data-day="">
+          <span>${dayLabel(ui.day, today)}</span>${icon('close')}
+        </button>` : ''}
+
+        ${rows.length ? html`
+          <ul class="list">${rows.map((t) => txRow(t, cats.get(t.categoryId) || unknownCategory(t.type), { today }))}</ul>
+          ${count > rows.length ? html`<button type="button" class="more" data-more>查看更多<span>还有 ${count - rows.length} 笔</span></button>` : ''}`
+          : html`<div class="empty-state empty-state--quiet">
+            <span class="empty-state__icon">${icon(searching ? 'search' : 'list')}</span>
+            <h3>${searching ? '没有找到相关记录' : ui.day ? '这一天没有记录' : '这个月没有记录'}</h3>
+          </div>`}
+      </div>
     `;
   },
 
   afterRender(el, ctx) {
+    const jump = el.querySelector('input[name="jump"]');
+    if (jump) {
+      jump.onchange = () => {
+        if (jump.value && !isValidISODate(jump.value)) return;
+        ui.day = jump.value || '';
+        if (ui.day) ui.ym = monthOf(ui.day);
+        reset();
+        ctx.rerender();
+      };
+    }
     const input = el.querySelector('.search__input');
     if (!input) return;
     if (screen._refocus) {
@@ -98,6 +125,7 @@ const screen = {
     }
     input.oninput = () => {
       ui.query = input.value.slice(0, 40);
+      reset();
       screen._refocus = true;
       clearTimeout(screen._t);
       screen._t = setTimeout(() => ctx.rerender(), 120);
@@ -106,10 +134,44 @@ const screen = {
 
   onClick(e, ctx) {
     const m = e.target.closest('[data-month]');
-    if (m && !m.disabled) { ui.ym = m.dataset.month; haptic(); ctx.rerender(); return; }
+    if (m && !m.disabled) { ui.ym = m.dataset.month; ui.day = ''; reset(); haptic(); ctx.rerender(); return; }
+    const d = e.target.closest('[data-day]');
+    if (d && !d.disabled) { ui.day = ui.day === d.dataset.day ? '' : d.dataset.day; reset(); haptic(); ctx.rerender(); return; }
     const f = e.target.closest('[data-filter]');
-    if (f) { ui.filter = f.dataset.filter; haptic(); ctx.rerender(); }
+    if (f) { ui.filter = f.dataset.filter; reset(); haptic(); ctx.rerender(); return; }
+    if (e.target.closest('[data-more]')) { ui.shown += PAGE * 2; haptic(); ctx.rerender(); return; }
+    if (e.target.closest('[data-search]')) {
+      ui.searching = !(ui.searching || ui.query);
+      if (!ui.searching) ui.query = '';
+      screen._refocus = ui.searching;
+      reset();
+      haptic();
+      ctx.rerender();
+    }
   },
 };
+
+/** A different view starts on its first page again. */
+function reset() { ui.shown = PAGE; }
+
+/** One entry per day of the month: what was spent (or, with the income filter, received) that day. */
+function monthDays(list, ym, today) {
+  const sums = new Map();
+  const incomeOnly = ui.filter === 'income';
+  for (const t of list) {
+    if (t.type !== (incomeOnly ? 'income' : 'expense')) continue;
+    sums.set(t.date, (sums.get(t.date) || 0) + t.amount);
+  }
+  const out = [];
+  for (let day = 1; day <= daysInMonth(ym); day += 1) {
+    const date = dateInMonth(ym, day);
+    const value = sums.get(date) || 0;
+    out.push({
+      date, value, state: date < today ? 'past' : date === today ? 'today' : 'future',
+      title: `${dayLabel(date, today)} ${formatMoney(value)}`,
+    });
+  }
+  return out;
+}
 
 export default screen;

@@ -1,11 +1,23 @@
 // Pieces shared by several screens.
-import { html, icon, catIcon, money } from '../html.js';
-import { addMonths, dayLabel, monthLabel } from '../../core/dates.js';
+import { html, icon, catIcon, money, facts } from '../html.js';
+import { addMonths, dayLabel, monthLabel, toISODate } from '../../core/dates.js';
 
-/** A transaction row with swipe-to-delete. */
-export function txRow(t, cat, { showDate = false } = {}) {
+/** "14:32" when the entry was typed in on the day it is dated (a back-dated or automatic entry has no time). */
+export function timeOf(t) {
+  if (!t.createdAt || t.recurringId) return '';
+  const d = new Date(t.createdAt);
+  if (Number.isNaN(d.getTime()) || toISODate(d) !== t.date) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * A transaction row with swipe-to-delete: what it was, then "类别 · 昨天 14:32" in one quiet line, the amount on the
+ * right. `today`: for 今天 / 昨天; showDate: false leaves the day out for entries dated today.
+ */
+export function txRow(t, cat, { today = '', showDate = true } = {}) {
   const title = t.note || cat.name;
-  const sub = [t.note ? cat.name : null, showDate ? dayLabel(t.date) : null].filter(Boolean).join(' · ');
+  const day = showDate || t.date !== today ? dayLabel(t.date, today || undefined) : '';
+  const when = [day, timeOf(t)].filter(Boolean).join(' ');
   return html`<li class="swipe" data-motion="row" data-motion-key="${t.id}">
     <button type="button" class="swipe__action" data-action="delete-tx" data-id="${t.id}" aria-label="删除">${icon('trash')}<span>删除</span></button>
     <div class="swipe__content">
@@ -14,7 +26,7 @@ export function txRow(t, cat, { showDate = false } = {}) {
         <span class="row__body">
           <span class="row__title">${title}</span>
           <span class="row__subtitle">
-            ${sub}
+            ${facts(t.note ? cat.name : '', when)}
             ${t.business ? html`<span class="tag tag--business">创业</span>` : ''}
             ${t.recurringId ? html`<span class="tag tag--fixed">固定</span>` : ''}
           </span>
@@ -25,24 +37,34 @@ export function txRow(t, cat, { showDate = false } = {}) {
   </li>`;
 }
 
+/** One capsule of glass: ‹ label › — back, "return to now", forward. */
+function switcher({ aria, prev, label, next, attr }) {
+  return html`<div class="switcher" role="group" aria-label="${aria}">
+    <button type="button" class="switcher__btn" ${attr}="${prev.key}" aria-label="${prev.label}">${icon('chevron-left')}</button>
+    <button type="button" class="switcher__label" ${attr}="${label.key}" aria-label="${label.aria}">${label.text}</button>
+    <button type="button" class="switcher__btn" ${attr}="${next.key}" aria-label="${next.label}" ${next.can ? '' : 'disabled'}>${icon('chevron-right')}</button>
+  </div>`;
+}
+
 /** ‹ 2026年9月 › month switcher. */
 export function monthSwitcher(ym, current) {
-  const canNext = ym < current;
-  return html`<div class="month-switch" role="group" aria-label="切换月份">
-    <button type="button" class="btn btn--icon btn--glass" data-month="${addMonths(ym, -1)}" aria-label="上个月">${icon('chevron-left')}</button>
-    <button type="button" class="month-switch__label" data-month="${current}" aria-label="回到本月">${monthLabel(ym)}</button>
-    <button type="button" class="btn btn--icon btn--glass" data-month="${addMonths(ym, 1)}" aria-label="下个月" ${canNext ? '' : 'disabled'}>${icon('chevron-right')}</button>
-  </div>`;
+  return switcher({
+    aria: '切换月份', attr: 'data-month',
+    prev: { key: addMonths(ym, -1), label: '上个月' },
+    label: { key: current, text: monthLabel(ym), aria: '回到本月' },
+    next: { key: addMonths(ym, 1), label: '下个月', can: ym < current },
+  });
 }
 
 /** Previous / current / next switcher for a budget period (month or pay cycle). */
 export function periodSwitcher(p, { prevKey, nextKey, currentKey, canNext }) {
   const cycle = p.kind === 'cycle';
-  return html`<div class="month-switch" role="group" aria-label="${cycle ? '切换收入周期' : '切换月份'}">
-    <button type="button" class="btn btn--icon btn--glass" data-period="${prevKey}" aria-label="${cycle ? '上一期' : '上个月'}">${icon('chevron-left')}</button>
-    <button type="button" class="month-switch__label" data-period="${currentKey}" aria-label="${cycle ? '回到本期' : '回到本月'}">${p.label}</button>
-    <button type="button" class="btn btn--icon btn--glass" data-period="${nextKey}" aria-label="${cycle ? '下一期' : '下个月'}" ${canNext ? '' : 'disabled'}>${icon('chevron-right')}</button>
-  </div>`;
+  return switcher({
+    aria: cycle ? '切换收入周期' : '切换月份', attr: 'data-period',
+    prev: { key: prevKey, label: cycle ? '上一期' : '上个月' },
+    label: { key: currentKey, text: p.label, aria: cycle ? '回到本期' : '回到本月' },
+    next: { key: nextKey, label: cycle ? '下一期' : '下个月', can: canNext },
+  });
 }
 
 /** Status pill used in analysis: icon + label, never color alone. */

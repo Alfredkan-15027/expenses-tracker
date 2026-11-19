@@ -1,4 +1,5 @@
-// 设置 — plan, savings, living situation, bookkeeping, security, backup & privacy.
+// 设置 — opened from the gear at the top right. First the plan as one card (what a period may spend = income −
+// savings target), then the four things used most as tiles, then the rest as lists.
 import { html, icon } from '../html.js';
 import { haptic } from '../haptics.js';
 import { confirmDialog, toast, alertDialog } from '../overlays.js';
@@ -20,7 +21,7 @@ import { openCashSheet, currentCash } from '../sheets/cash.js';
 import { dayLabel } from '../../core/dates.js';
 import { infoButton, infoPanel } from '../info.js';
 
-export const APP_VERSION = '1.4.7';
+export const APP_VERSION = '1.5.0';
 
 let lockInfo = { enabled: false, pinLength: 6, autoLockMs: 60_000, biometric: false };
 let faceIdAvailable = false;
@@ -57,112 +58,123 @@ const screen = {
     const drive = s.backupDest === 'gdrive';
     const issues = demo ? [] : healthIssues();
 
+    const tile = ({ action, glyph, color, title, value }) => html`<button type="button" class="tile tile--set" data-set="${action}">
+      <span class="row__glyph-tile" data-color="${color}">${icon(glyph)}</span>
+      <span class="tile__label">${title}</span>
+      <span class="tile__value tile__value--text">${value}</span>
+    </button>`;
+
     return html`
-      <header class="screen__header">
-        <h1 class="large-title">设置</h1>
-      </header>
+      <div class="panel panel--page">
+        <header class="page-head">
+          <h1 class="large-title">设置</h1>
+        </header>
 
-      <section class="section">
-        <h2 class="section__title">每月计划 ${infoButton('set-plan')}</h2>
-        ${infoPanel('set-plan', html`<ul class="info-list">
-          <li>${icon('target')}<span>${budget ? `${s.payCycle.enabled ? '每个收入周期' : '每月'}可支配 ${formatMoney(budget, { round: true })}（收入 − 存款目标），「今天还能花」按这个数字计算。` : '填入收入后，「今天」页会显示每天还能花多少。'}</span></li>
-          <li>${icon('calendar')}<span>${s.payCycle.enabled ? `预算周期从收到薪水／创业收入那天开始（${s.payCycle.from}–${s.payCycle.to} 号之间），下次收入按 ${s.payCycle.to} 号估计。` : '预算周期从每月 1 号开始。'}</span></li>
-          <li>${icon('business')}<span>${s.budgetIncludesBusiness ? '创业支出也算进「今天还能花」和本期预算。' : '创业支出另外算，不占「今天还能花」和本期预算（分析页仍会单独列出）。'}</span></li>
-        </ul>`)}
-        <ul class="list">
-          ${row({ action: 'income', glyph: 'salary', color: 'green', title: '预计每月收入', value: s.expectedIncome ? formatMoney(s.expectedIncome, { round: true }) : '未设定' })}
-          ${row({ action: 'cycle', glyph: 'calendar', color: 'orange', title: '预算周期', value: s.payCycle.enabled ? `收入日 ${s.payCycle.from}–${s.payCycle.to} 号` : '日历月' })}
-          ${row({ action: 'target', glyph: 'target', color: 'blue', title: '每月存款目标', value: s.savingsTarget ? formatMoney(s.savingsTarget, { round: true }) : '未设定' })}
-          ${toggleRow({ attr: 'bizbudget', glyph: 'business', color: 'mint', title: '创业支出占用额度', checked: s.budgetIncludesBusiness })}
-        </ul>
-      </section>
+        <section class="card plan-card">
+          <div class="plan-card__head">
+            <span class="plan-card__label">${s.payCycle.enabled ? '每个收入周期可支配' : '每月可支配'} ${infoButton('set-plan')}</span>
+            <strong class="plan-card__value">${budget ? formatMoney(budget, { round: true }) : '未设定'}</strong>
+          </div>
+          <div class="plan-card__sum">
+            <button type="button" class="plan-card__part" data-set="income">
+              <span>预计每月收入</span><strong>${s.expectedIncome ? formatMoney(s.expectedIncome, { round: true }) : '未设定'}</strong>
+            </button>
+            <span class="plan-card__op" aria-hidden="true">−</span>
+            <button type="button" class="plan-card__part" data-set="target">
+              <span>每月存款目标</span><strong>${s.savingsTarget ? formatMoney(s.savingsTarget, { round: true }) : '未设定'}</strong>
+            </button>
+          </div>
+          ${infoPanel('set-plan', html`<ul class="info-list">
+            <li>${icon('target')}<span>${budget ? `${s.payCycle.enabled ? '每个收入周期' : '每月'}可支配 ${formatMoney(budget, { round: true })}（收入 − 存款目标），「今天还能花」按这个数字计算。` : '填入收入后，「今天」页会显示每天还能花多少。'}</span></li>
+            <li>${icon('calendar')}<span>${s.payCycle.enabled ? `预算周期从收到薪水／创业收入那天开始（${s.payCycle.from}–${s.payCycle.to} 号之间），下次收入按 ${s.payCycle.to} 号估计。` : '预算周期从每月 1 号开始。'}</span></li>
+            <li>${icon('business')}<span>${s.budgetIncludesBusiness ? '创业支出也算进「今天还能花」和本期预算。' : '创业支出另外算，不占「今天还能花」和本期预算（分析页仍会单独列出）。'}</span></li>
+          </ul>`)}
+          <ul class="list list--plain plan-card__rows">
+            ${row({ action: 'cycle', glyph: 'calendar', color: 'orange', title: '预算周期', value: s.payCycle.enabled ? `收入日 ${s.payCycle.from}–${s.payCycle.to} 号` : '日历月' })}
+            ${toggleRow({ attr: 'bizbudget', glyph: 'business', color: 'mint', title: '创业支出占用额度', checked: s.budgetIncludesBusiness })}
+          </ul>
+        </section>
 
-      <section class="section">
-        <h2 class="section__title">储蓄 ${infoButton('set-savings')}</h2>
-        ${infoPanel('set-savings', html`<p>${cash ? `${dayLabel(cash.at)}对账，之后按记录自动加减。` : ''}隔一段时间对一次账，就能发现漏记；「今天还能花」也不会超过你真正有的钱。也用来算个人 Runway。投资另外在「投资」页管理。</p>`)}
-        <ul class="list">
-          ${row({ action: 'savings', glyph: 'wallet', color: 'pink', title: '手上的钱 · 对账', value: cash ? formatMoney(cash.balance, { round: true }) : s.currentSavings ? formatMoney(s.currentSavings, { round: true }) : '未填写' })}
-          ${row({ action: 'goal', glyph: 'sparkles', color: 'orange', title: '长期目标', value: s.goalAmount ? `${s.goalName} ${formatMoney(s.goalAmount, { round: true })}` : '未设定' })}
-        </ul>
-      </section>
+        <div class="tiles tiles--set">
+          ${tile({ action: 'savings', glyph: 'wallet', color: 'pink', title: '手上的钱 · 对账', value: cash ? formatMoney(cash.balance, { round: true }) : s.currentSavings ? formatMoney(s.currentSavings, { round: true }) : '未填写' })}
+          ${tile({ action: 'recurring', glyph: 'subscriptions', color: 'cyan', title: '固定项目', value: activeRec ? `${activeRec} 个` : '还没有' })}
+          ${tile({ action: 'categories', glyph: 'list', color: 'orange', title: '类别', value: `${state.categories.filter((c) => !c.archived).length} 个` })}
+          ${tile({ action: 'health', glyph: 'check', color: 'green', title: '资料检查', value: issues.length ? `${issues.length} 项` : '没有问题' })}
+        </div>
 
-      <section class="section">
-        <h2 class="section__title">我的情况 ${infoButton('set-profile')}</h2>
-        ${infoPanel('set-profile', html`<p>用来调整「吉隆坡 24 岁创业者」的参考标准。</p>`)}
-        <ul class="list">
-          ${row({ action: 'housing', glyph: 'housing', color: 'indigo', title: '住房', value: housing })}
-          ${row({ action: 'transport', glyph: 'transport', color: 'blue', title: '主要交通', value: transport })}
-        </ul>
-      </section>
+        <section class="section">
+          <h2 class="section__title">目标与参考 ${infoButton('set-profile')}</h2>
+          ${infoPanel('set-profile', html`<ul class="info-list">
+            <li>${icon('sparkles')}<span>长期目标：${cash ? `手上的钱在${dayLabel(cash.at)}对账，之后按记录自动加减；` : ''}隔一段时间对一次账，就能发现漏记。也用来算个人 Runway。投资另外在「投资」页管理。</span></li>
+            <li>${icon('housing')}<span>住房和交通：用来调整「吉隆坡 24 岁创业者」的参考标准。</span></li>
+          </ul>`)}
+          <ul class="list">
+            ${row({ action: 'goal', glyph: 'sparkles', color: 'orange', title: '长期目标', value: s.goalAmount ? `${s.goalName} ${formatMoney(s.goalAmount, { round: true })}` : '未设定' })}
+            ${row({ action: 'housing', glyph: 'housing', color: 'indigo', title: '住房', value: housing })}
+            ${row({ action: 'transport', glyph: 'transport', color: 'blue', title: '主要交通', value: transport })}
+          </ul>
+        </section>
 
-      <section class="section">
-        <h2 class="section__title">记账 ${infoButton('set-books')}</h2>
-        ${infoPanel('set-books', html`<ul class="info-list">
-          <li>${icon('list')}<span>类别：排序、改名、新增。</span></li>
-          <li>${icon('subscriptions')}<span>固定项目：房租、月费、订阅、薪水，到日子自动记一笔。</span></li>
-          <li>${icon('check')}<span>资料检查：找出重复、漏记和不合理的记录。</span></li>
-          <li>${icon('bell')}<span>每日提醒：用 iPhone 自带功能，免费又安全。</span></li>
-        </ul>`)}
-        <ul class="list">
-          ${row({ action: 'categories', glyph: 'list', color: 'orange', title: '类别' })}
-          ${row({ action: 'recurring', glyph: 'subscriptions', color: 'cyan', title: '固定项目', value: activeRec ? `${activeRec} 个` : '' })}
-          ${row({ action: 'health', glyph: 'check', color: 'green', title: '资料检查', value: issues.length ? `${issues.length} 项` : '没有问题' })}
-          ${row({ action: 'reminder', glyph: 'bell', color: 'red', title: '每日提醒' })}
-          ${!isStandalone() ? row({ action: 'install', glyph: 'add-home', color: 'gray', title: '添加到主屏幕' }) : ''}
-        </ul>
-      </section>
+        <section class="section">
+          <h2 class="section__title">安全 ${infoButton('set-lock')}</h2>
+          ${infoPanel('set-lock', html`<ul class="info-list">
+            <li>${icon('lock')}<span>密码锁：打开 App 需要输入 6 位密码。</span></li>
+            <li>${icon('faceid')}<span>Face ID 解锁：失败时可以改用密码。</span></li>
+            <li>${icon('clock')}<span>自动上锁：离开 App 多久后需要重新解锁。</span></li>
+          </ul>`)}
+          <ul class="list">
+            ${toggleRow({ attr: 'lock', glyph: 'lock', color: 'gray', title: '密码锁', sub: lockInfo.enabled ? `${lockInfo.pinLength} 位密码` : '', checked: lockInfo.enabled, disabled: demo })}
+            ${lockInfo.enabled ? html`
+              ${faceIdAvailable ? toggleRow({ attr: 'faceid', glyph: 'faceid', color: 'green', title: 'Face ID 解锁', checked: lockInfo.biometric }) : ''}
+              ${row({ action: 'autolock', glyph: 'clock', color: 'indigo', title: '自动上锁', value: autoLockLabel })}
+              ${row({ action: 'changepin', glyph: 'note', color: 'gray', title: lockInfo.pinLength === 6 ? '更改密码' : '改为 6 位密码' })}
+            ` : ''}
+          </ul>
+          ${lockInfo.enabled && !faceIdAvailable ? html`<p class="section__footer">这个设备目前无法使用 Face ID。请从主屏幕图标打开 App，并确认 iPhone 已设定 Face ID。</p>` : ''}
+        </section>
 
-      <section class="section">
-        <h2 class="section__title">安全 ${infoButton('set-lock')}</h2>
-        ${infoPanel('set-lock', html`<ul class="info-list">
-          <li>${icon('lock')}<span>密码锁：打开 App 需要输入 6 位密码。</span></li>
-          <li>${icon('faceid')}<span>Face ID 解锁：失败时可以改用密码。</span></li>
-          <li>${icon('clock')}<span>自动上锁：离开 App 多久后需要重新解锁。</span></li>
-        </ul>`)}
-        <ul class="list">
-          ${toggleRow({ attr: 'lock', glyph: 'lock', color: 'gray', title: '密码锁', sub: lockInfo.enabled ? `${lockInfo.pinLength} 位密码` : '', checked: lockInfo.enabled, disabled: demo })}
-          ${lockInfo.enabled ? html`
-            ${faceIdAvailable ? toggleRow({ attr: 'faceid', glyph: 'faceid', color: 'green', title: 'Face ID 解锁', checked: lockInfo.biometric }) : ''}
-            ${row({ action: 'autolock', glyph: 'clock', color: 'indigo', title: '自动上锁', value: autoLockLabel })}
-            ${row({ action: 'changepin', glyph: 'note', color: 'gray', title: lockInfo.pinLength === 6 ? '更改密码' : '改为 6 位密码' })}
-          ` : ''}
-        </ul>
-        ${lockInfo.enabled && !faceIdAvailable ? html`<p class="section__footer">这个设备目前无法使用 Face ID。请从主屏幕图标打开 App，并确认 iPhone 已设定 Face ID。</p>` : ''}
-      </section>
+        <section class="section">
+          <h2 class="section__title">备份 ${infoButton('set-backup')}</h2>
+          ${infoPanel('set-backup', html`<ul class="info-list">
+            <li>${icon('subscriptions')}<span>自动备份：打开 App 时检查，到时间就提醒你一键备份。</span></li>
+            ${drive ? html`<li>${icon('key')}<span>Google Drive 备份先用只有你持有的恢复密钥加密，再上传；换新手机还原时需要这把密钥，可以更换。</span></li>`
+              : html`<li>${icon('upload')}<span>备份到 iCloud：在分享菜单选「存储到文件」。</span></li>`}
+            <li>${icon('cloud')}<span>从 Google Drive 还原：换新手机时用，需要恢复密钥。</span></li>
+          </ul>`)}
+          <ul class="list">
+            ${row({ action: 'backupfreq', glyph: 'subscriptions', color: 'teal', title: '自动备份', value: freqLabel })}
+            ${row({ action: 'backupdest', glyph: drive ? 'cloud' : 'upload', color: drive ? 'blue' : 'green', title: '备份位置', value: drive ? 'Google Drive' : 'iCloud 云盘' })}
+            ${drive ? html`
+              ${row({ action: 'drivebackup', glyph: 'cloud', color: 'blue', title: s.gdriveConnected ? '立即备份到 Google Drive' : '连接 Google Drive', sub: s.gdriveConnected ? `上次：${backupAgeText(s.lastGdriveBackupAt)} · 已加密` : '' })}
+              ${hasDriveKey ? row({ action: 'recoverykey', glyph: 'key', color: 'orange', title: '恢复密钥' }) : ''}
+              ${s.gdriveConnected ? row({ action: 'drivedisconnect', title: '中断 Google Drive 连接', danger: true, chevron: false }) : ''}
+            ` : html`
+              ${row({ action: 'backup', glyph: 'upload', color: 'green', title: '立即备份', sub: `上次：${backupAgeText(s.lastBackupAt)}` })}
+            `}
+          </ul>
+          <ul class="list">
+            ${row({ action: 'driverestore', glyph: 'cloud', color: 'indigo', title: '从 Google Drive 还原' })}
+            ${row({ action: 'restore', glyph: 'download', color: 'blue', title: '从备份文件还原' })}
+            ${row({ action: 'csv', glyph: 'list', color: 'gray', title: '导出 CSV' })}
+          </ul>
+        </section>
 
-      <section class="section">
-        <h2 class="section__title">备份 ${infoButton('set-backup')}</h2>
-        ${infoPanel('set-backup', html`<ul class="info-list">
-          <li>${icon('subscriptions')}<span>自动备份：打开 App 时检查，到时间就提醒你一键备份。</span></li>
-          ${drive ? html`<li>${icon('key')}<span>Google Drive 备份先用只有你持有的恢复密钥加密，再上传；换新手机还原时需要这把密钥，可以更换。</span></li>`
-            : html`<li>${icon('upload')}<span>备份到 iCloud：在分享菜单选「存储到文件」。</span></li>`}
-          <li>${icon('cloud')}<span>从 Google Drive 还原：换新手机时用，需要恢复密钥。</span></li>
-        </ul>`)}
-        <ul class="list">
-          ${row({ action: 'backupfreq', glyph: 'subscriptions', color: 'teal', title: '自动备份', value: freqLabel })}
-          ${row({ action: 'backupdest', glyph: drive ? 'cloud' : 'upload', color: drive ? 'blue' : 'green', title: '备份位置', value: drive ? 'Google Drive' : 'iCloud 云盘' })}
-          ${drive ? html`
-            ${row({ action: 'drivebackup', glyph: 'cloud', color: 'blue', title: s.gdriveConnected ? '立即备份到 Google Drive' : '连接 Google Drive', sub: s.gdriveConnected ? `上次：${backupAgeText(s.lastGdriveBackupAt)} · 已加密` : '' })}
-            ${hasDriveKey ? row({ action: 'recoverykey', glyph: 'key', color: 'orange', title: '恢复密钥' }) : ''}
-            ${s.gdriveConnected ? row({ action: 'drivedisconnect', title: '中断 Google Drive 连接', danger: true, chevron: false }) : ''}
-          ` : html`
-            ${row({ action: 'backup', glyph: 'upload', color: 'green', title: '立即备份', sub: `上次：${backupAgeText(s.lastBackupAt)}` })}
-          `}
-        </ul>
-        <ul class="list">
-          ${row({ action: 'driverestore', glyph: 'cloud', color: 'indigo', title: '从 Google Drive 还原' })}
-          ${row({ action: 'restore', glyph: 'download', color: 'blue', title: '从备份文件还原' })}
-          ${row({ action: 'csv', glyph: 'list', color: 'gray', title: '导出 CSV' })}
-          ${row({ action: 'privacy', glyph: 'shield', color: 'green', title: '隐私说明' })}
-        </ul>
-      </section>
+        <section class="section">
+          <h2 class="section__title">更多</h2>
+          <ul class="list">
+            ${row({ action: 'reminder', glyph: 'bell', color: 'red', title: '每日提醒', sub: '用 iPhone 自带功能，免费又安全' })}
+            ${!isStandalone() ? row({ action: 'install', glyph: 'add-home', color: 'gray', title: '添加到主屏幕' }) : ''}
+            ${row({ action: 'privacy', glyph: 'shield', color: 'green', title: '隐私说明' })}
+          </ul>
+        </section>
 
-      <section class="section">
-        <ul class="list">
-          ${row({ action: 'erase', title: '清除全部资料', danger: true, chevron: false })}
-        </ul>
-        <p class="section__footer section__footer--center">Expenses Tracker ${APP_VERSION} · 仅供个人使用<br>所有资料只存在这台设备</p>
-      </section>
+        <section class="section">
+          <ul class="list">
+            ${row({ action: 'erase', title: '清除全部资料', danger: true, chevron: false })}
+          </ul>
+          <p class="section__footer section__footer--center">Expenses Tracker ${APP_VERSION} · 仅供个人使用<br>所有资料只存在这台设备</p>
+        </section>
+      </div>
     `;
   },
 
