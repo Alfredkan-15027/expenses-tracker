@@ -4,8 +4,9 @@
 // so it is never dead still, a darker wave behind for depth, shafts of light, and a few bubbles.
 // Screens are redrawn with innerHTML on every change, which replaces the <canvas>; the simulation lives here, in the
 // module, and is handed the new canvas (attachWater) — the water carries on from where it was.
-// Colours come from CSS (--water-* in tokens.css). Nothing runs while the page is hidden, covered by the panel, or
-// when the iPhone asks for reduced motion (then one still frame is drawn).
+// Colours come from CSS (--water-* in tokens.css). Nothing runs while the page is hidden, covered by the panel or by
+// a sheet, while a finger slides along the dock (holdWater), or when the iPhone asks for reduced motion (then one
+// still frame is drawn).
 
 const N = 84;                 // columns across the width
 const SPRING = 26;            // pull back to rest
@@ -179,9 +180,16 @@ function step(dt) {
 }
 
 function covered() {
-  // the panel has slid over (nearly) the whole scene
+  // the panel has slid over (nearly) the whole scene, or a sheet / alert lies over the page
   const cssH = s.h / s.dpr;
-  return window.scrollY > cssH * 0.94;
+  return window.scrollY > cssH * 0.94 || document.documentElement.classList.contains('has-overlay');
+}
+
+let held = false;
+/** Keep the water still (it stays as drawn) while something else needs every frame; false lets it move again. */
+export function holdWater(on) {
+  held = !!on;
+  if (!held) start();
 }
 
 function frame(now) {
@@ -189,7 +197,7 @@ function frame(now) {
   if (!s.canvas || !s.canvas.isConnected || document.hidden) return;
   const dt = Math.min(0.034, Math.max(0.001, (now - (s.last || now)) / 1000));
   s.last = now;
-  if (!covered()) {
+  if (!held && !covered()) {
     // two smaller steps keep the springs stable at 30 fps
     step(dt / 2); step(dt / 2);
     draw();
