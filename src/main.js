@@ -1,4 +1,4 @@
-// App shell: routing, tab bar, scroll-edge nav bar, global gestures and lifecycle.
+// App shell: routing, the glass dock (with its draggable lens), the top bar, global gestures and lifecycle.
 import * as store from './data/store.js';
 import * as lock from './data/lock.js';
 import { getKV, setKV, deleteKV } from './data/db.js';
@@ -21,25 +21,32 @@ import * as gdrive from './data/gdrive.js';
 import { handleOAuthReturn, runAutoBackup } from './ui/sheets/cloud.js';
 
 const SCREENS = { today, history, insights, invest, settings };
+// The dock holds the four places you go every day, with 记一笔 in the middle; 设置 is the gear at the top right.
+// Icons only: each carries its name for VoiceOver (aria-label).
 const TABS = [
   { id: 'today', label: '今天', icon: 'today' },
   { id: 'history', label: '记录', icon: 'list' },
   { id: 'insights', label: '分析', icon: 'chart' },
   { id: 'invest', label: '投资', icon: 'invest' },
-  { id: 'settings', label: '设置', icon: 'settings' },
 ];
+const ORDER = ['today', 'history', 'insights', 'invest', 'settings'];
 
 const params = new URLSearchParams(location.search);
 // ?demo=1 → sample data with investing started · ?demo=2 → sample data, investing not started yet
 const demo = ['1', '2'].includes(params.get('demo')) ? params.get('demo') : false;
-const app = { current: 'today', scroll: {}, lastDay: todayISO(), hiddenAt: 0, locked: false };
+const app = { current: 'today', prev: 'today', scroll: {}, lastDay: todayISO(), hiddenAt: 0, locked: false };
 
 const $screen = () => document.getElementById('screen');
 const $nav = () => document.getElementById('navbar');
+const $dock = () => document.getElementById('dock');
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 // ── Shell ───────────────────────────────────────────────────────────────────
 
 function renderShell() {
+  const tab = (t) => html`<a class="dock__item" href="#/${t.id}" data-tab="${t.id}" aria-label="${t.label}">
+    <span class="dock__icon">${icon(t.icon)}</span>
+  </a>`;
   mount(document.getElementById('app'), html`
     <header class="navbar" id="navbar">
       <div class="navbar__inner">
@@ -49,16 +56,90 @@ function renderShell() {
       </div>
     </header>
     <main class="screen" id="screen" tabindex="-1"></main>
-    <nav class="tabbar" aria-label="主导航">
-      <div class="tabbar__group">
-        ${TABS.map((t) => html`<a class="tabbar__item" href="#/${t.id}" data-tab="${t.id}" aria-label="${t.label}">
-          <span class="tabbar__icon">${icon(t.icon)}</span><span class="tabbar__label">${t.label}</span>
-        </a>`)}
+    <nav class="dock" aria-label="主导航">
+      <div class="dock__bar" id="dock">
+        <span class="dock__lens" aria-hidden="true"></span>
+        ${TABS.slice(0, 2).map(tab)}
+        <button type="button" class="dock__add" data-action="add" aria-label="记一笔">${icon('plus')}</button>
+        ${TABS.slice(2).map(tab)}
       </div>
-      <button type="button" class="tabbar__add" data-action="add" aria-label="记一笔">${icon('plus')}</button>
     </nav>
-    ${demo ? html`<div class="demo-flag">演示模式 · 资料不会保存</div>` : ''}
+    ${demo ? html`<div class="demo-flag">演示</div>` : ''}
   `);
+  enableDockDrag();
+}
+
+// ── The dock's lens ─────────────────────────────────────────────────────────
+// A brighter drop of glass sits under the selected tab. Put a finger on the dock and slide: the lens swells and
+// follows the finger, the tab under it lifts, and letting go opens that tab — the way the iOS tab bar does it
+// (the idea of a tab bar with a raised middle button is CYLTabBarController's; the lens that stretches towards the
+// finger is liquid-glass-react's "elasticity", done here with plain CSS variables so it runs on iPhone Safari).
+
+function placeLens() {
+  const bar = $dock();
+  if (!bar) return;
+  const active = bar.querySelector('.dock__item.is-active');
+  bar.classList.toggle('has-lens', !!active);
+  if (!active) return;
+  bar.style.setProperty('--lens-x', `${active.offsetLeft}px`);
+  bar.style.setProperty('--lens-w', `${active.offsetWidth}px`);
+}
+
+let dockSwallowsClick = false;
+function enableDockDrag() {
+  const bar = $dock();
+  let pointer = null, startX = 0, dragging = false, under = null;
+  const items = () => [...bar.querySelectorAll('.dock__item')];
+  const nearest = (x) => items().reduce((best, el) => {
+    const r = el.getBoundingClientRect();
+    const d = Math.abs(x - (r.left + r.width / 2));
+    return !best || d < best.d ? { el, d } : best;
+  }, null)?.el;
+
+  bar.addEventListener('pointerdown', (e) => {
+    if (!e.target.closest('.dock__item')) return;
+    pointer = e.pointerId; startX = e.clientX; dragging = false; under = null;
+  });
+  bar.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== pointer) return;
+    if (!dragging) {
+      if (Math.abs(e.clientX - startX) < 8) return;
+      dragging = true;
+      try { bar.setPointerCapture(pointer); } catch { /* the pointer is already gone */ }
+      bar.classList.add('is-dragging', 'has-lens');
+    }
+    const r = bar.getBoundingClientRect();
+    const w = items()[0].offsetWidth;
+    bar.style.setProperty('--lens-w', `${w}px`);
+    bar.style.setProperty('--lens-x', `${clamp(e.clientX - r.left - w / 2, 5, r.width - w - 5)}px`);
+    const el = nearest(e.clientX);
+    if (el !== under) {
+      under?.classList.remove('is-under');
+      el?.classList.add('is-under');
+      under = el;
+      haptic();
+    }
+  });
+  const end = (e) => {
+    if (e.pointerId !== pointer) return;
+    pointer = null;
+    if (!dragging) return;
+    dragging = false;
+    bar.classList.remove('is-dragging');
+    under?.classList.remove('is-under');
+    dockSwallowsClick = true;
+    setTimeout(() => { dockSwallowsClick = false; }, 350);
+    const id = under?.dataset.tab;
+    under = null;
+    if (id && id !== app.current) location.hash = `#/${id}`;
+    else placeLens();
+  };
+  bar.addEventListener('pointerup', end);
+  bar.addEventListener('pointercancel', end);
+  // the dock's own size settles after the styles load and changes with the window: keep the lens under its tab
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (!dragging) placeLens(); }).observe(bar);
+  // the click that ends a slide is not a tap on whatever is under the finger
+  bar.addEventListener('click', (e) => { if (dockSwallowsClick) { e.preventDefault(); e.stopPropagation(); } }, true);
 }
 
 function currentFromHash() {
@@ -66,22 +147,26 @@ function currentFromHash() {
   return SCREENS[id] ? id : 'today';
 }
 
-function ctx() {
-  return { state: store.state, today: todayISO(), demo, rerender: render };
+function ctx(entering = false) {
+  return { state: store.state, today: todayISO(), demo, rerender: render, entering };
 }
 
 /** Draw the current screen. `entering`: it was just opened (plays its entrance instead of the change motion). */
 export function render({ keepScroll = true, entering = false } = {}) {
   if (!store.state.ready) return;
   const screen = SCREENS[app.current];
-  const c = ctx();
+  const c = ctx(entering);
   const y = window.scrollY;
+  const settings = app.current === 'settings';
+  document.documentElement.dataset.screen = app.current; // the canvas light and the dock follow the page (screens.css)
+  const gear = settings ? '' : html`<a class="btn btn--icon btn--glass" href="#/settings" aria-label="设置">${icon('settings')}</a>`;
+  const back = settings ? html`<button type="button" class="btn btn--icon btn--glass" data-back aria-label="返回">${icon('chevron-left')}</button>` : '';
   // A page that fails to draw must not take the rest of the app down with it: the data is untouched.
   try {
     mount($screen(), screen.render(c));
     document.getElementById('nav-title').textContent = screen.title;
-    mount(document.getElementById('nav-trailing'), screen.navActions?.(c) || '');
-    mount(document.getElementById('nav-leading'), screen.navLeading?.(c) || '');
+    mount(document.getElementById('nav-trailing'), html`${screen.navActions?.(c) || ''}${gear}`);
+    mount(document.getElementById('nav-leading'), html`${back}${screen.navLeading?.(c) || ''}`);
     screen.afterRender?.($screen(), c);
     // Motion is decoration: if it ever fails, the page it decorates must still be there.
     try {
@@ -90,18 +175,21 @@ export function render({ keepScroll = true, entering = false } = {}) {
     } catch { /* drawn without motion */ }
   } catch (err) {
     document.getElementById('nav-title').textContent = screen.title;
-    mount($screen(), html`<div class="empty-state empty-state--error">
+    mount(document.getElementById('nav-trailing'), gear);
+    mount(document.getElementById('nav-leading'), back);
+    mount($screen(), html`<div class="panel panel--page"><div class="empty-state empty-state--error">
       ${icon('warning')}<h2>这一页没能显示</h2>
       <p>你的资料没有受影响。可以先看看别的页面，或重新载入。</p>
       <p class="empty-state__detail">${String(err?.message || err)}</p>
       <button type="button" class="btn btn--primary" data-reload>重新载入</button>
-    </div>`);
+    </div></div>`);
   }
-  document.querySelectorAll('.tabbar__item').forEach((a) => {
+  document.querySelectorAll('.dock__item').forEach((a) => {
     const on = a.dataset.tab === app.current;
     a.classList.toggle('is-active', on);
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
+  placeLens();
   if (keepScroll) window.scrollTo(0, y);
   updateNavbar();
 }
@@ -115,6 +203,11 @@ function navigate() {
   const next = currentFromHash();
   if (next !== app.current) {
     app.scroll[app.current] = window.scrollY;
+    // the new page arrives from the side it lives on in the dock; 设置 rises from below
+    const from = ORDER.indexOf(app.current);
+    const to = ORDER.indexOf(next);
+    $screen().dataset.dir = next === 'settings' || app.current === 'settings' ? 'none' : to > from ? 'forward' : 'back';
+    if (next === 'settings') app.prev = app.current;
     app.current = next;
     render({ keepScroll: false, entering: true });
     window.scrollTo(0, app.scroll[next] || 0);
@@ -127,8 +220,8 @@ function navigate() {
   }
 }
 
-// iOS 27 scroll edge: the bar is clear at rest and becomes a solid glass bar with a hairline once
-// content scrolls underneath, and its compact title appears when the large title scrolls away.
+// Scrolling: the panel slides up over the scene. The scene sinks back as it is covered (--scroll, 0 → 1); once the
+// panel reaches the top bar, the bar gets its soft blurred edge and shows the page's name.
 let navTick = false;
 function updateNavbar() {
   if (navTick) return;
@@ -137,12 +230,19 @@ function updateNavbar() {
     navTick = false;
     const nav = $nav();
     if (!nav) return;
-    const title = document.querySelector('.large-title');
+    const el = $screen();
+    const scene = el.querySelector('.scene');
+    const panel = el.querySelector('.panel');
     const navH = nav.offsetHeight;
-    const scrolled = window.scrollY > 4;
-    const titleGone = title ? title.getBoundingClientRect().bottom < navH - 4 : scrolled;
-    nav.classList.toggle('is-scrolled', scrolled);
-    nav.classList.toggle('show-title', titleGone);
+    let under = window.scrollY > 4;
+    if (scene && panel) {
+      under = panel.getBoundingClientRect().top <= navH + 2;
+      el.style.setProperty('--scroll', clamp(window.scrollY / Math.max(1, scene.offsetHeight - navH), 0, 1).toFixed(3));
+    } else {
+      el.style.setProperty('--scroll', '0');
+    }
+    nav.classList.toggle('is-scrolled', under);
+    nav.classList.toggle('show-title', under);
   });
 }
 
@@ -153,6 +253,7 @@ async function onClick(e) {
   if (e.target.closest('#overlay-root')) return; // sheets and alerts handle their own taps
   if (e.target.closest('[data-reload]')) { location.reload(); return; }
   if (onInfoClick(e)) return; // ⓘ: unfold / fold an explanation in place
+  if (e.target.closest('[data-back]')) { haptic(); location.hash = `#/${app.prev || 'today'}`; return; }
   const tab = e.target.closest('[data-tab]');
   if (tab) {
     haptic();
@@ -398,15 +499,15 @@ async function start() {
   document.addEventListener('click', onClick);
   window.addEventListener('hashchange', navigate);
   window.addEventListener('scroll', updateNavbar, { passive: true });
-  window.addEventListener('resize', updateNavbar, { passive: true });
+  window.addEventListener('resize', () => { updateNavbar(); placeLens(); }, { passive: true });
   lock.setMemoryOnly(demo);
   try {
     await store.init({ demo });
   } catch (err) {
-    mount($screen(), html`<div class="empty-state empty-state--error">
+    mount($screen(), html`<div class="panel panel--page"><div class="empty-state empty-state--error">
       ${icon('warning')}<h2>无法打开资料库</h2>
       <p>请确认没有使用「无痕浏览」，然后重新打开 App。</p><p class="empty-state__detail">${String(err?.message || err)}</p>
-    </div>`);
+    </div></div>`);
     return;
   }
   // Returning from Google's sign-in page: read (and strip) the token from the URL before routing.
