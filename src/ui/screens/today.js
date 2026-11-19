@@ -5,7 +5,7 @@ import { dailyBudget, quickPicks, periodOutlook, periodSummary, spendingModel, t
 import { infoButton, infoPanel } from '../info.js';
 import { categoryMap, unknownCategory } from '../../core/categories.js';
 import { formatMoney, formatPercent } from '../../core/money.js';
-import { dayLabel, longDateLabel, timeGreeting } from '../../core/dates.js';
+import { addDays, dayLabel, longDateLabel, timeGreeting } from '../../core/dates.js';
 import { cycleNote } from '../../core/periods.js';
 import { txRow } from './shared.js';
 import { openPlanSheet } from '../sheets/plan.js';
@@ -171,6 +171,7 @@ function hero(b, cycleLine = '') {
     cycleLine ? html`<li>${icon('calendar')}<span>${cycleLine}</span></li>` : '',
     b.prorated ? html`<li>${icon('info')}<span>从${dayLabel(b.startDate)}开始记录，${THIS}预算已按剩余天数折算为 ${formatMoney(b.budget, { round: true })}${b.fixedTracked > 0 ? `（这之后才扣的固定支出 ${formatMoney(b.fixedTracked, { round: true })} 全额算在内）` : ''}</span></li>` : '',
     !cashLimit && b.reserved > 0 ? html`<li>${icon('clock')}<span>已预留${THIS}未到期的固定支出 ${formatMoney(b.reserved, { round: true })}</span></li>` : '',
+    b.nextIncomeBills > 0 ? html`<li>${icon('calendar')}<span>${dayLabel(addDays(b.billsUntil, 1))}起到期的固定支出约 ${formatMoney(b.nextIncomeBills, { round: true })}（例如房租）留给下次收入付，不从现在的钱里预留</span></li>` : '',
     b.fixedToday > 0 ? html`<li>${icon('clock')}<span>今天的固定支出 ${formatMoney(b.fixedToday, { round: true })} 已提前预留，不占今天的额度</span></li>` : '',
     b.spentBusiness > 0 ? html`<li>${icon('business')}<span>${b.countsBusiness
       ? `${THIS}已花 ${formatMoney(allRM * 100, { round: true })}：个人 ${formatMoney((allRM - bizRM) * 100, { round: true })} + 创业 ${formatMoney(bizRM * 100, { round: true })}（都算进预算）`
