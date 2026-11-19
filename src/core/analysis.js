@@ -368,15 +368,19 @@ export function periodBudget({ txs, settings, period: p, recurring = [] }) {
 /**
  * The last day whose fixed bills the running period's money must cover. In a running pay cycle, bills due inside the
  * next pay window are left to the next income, which arrives in that window — rent due on the 19th is paid from the
- * pay that comes on the 14th–20th, not saved up from this period's money (and not set aside twice). Once the window
- * has begun with no income yet, they are this period's again.
+ * pay that comes on the 14th–20th, not saved up from this period's money (and not set aside twice).
+ * That holds inside the window too, while the income is still awaited: the days before it were allowed to spend
+ * as if those bills were not this period's, so charging them to it the day the window opens would leave it short
+ * overnight. A bill that does come due before the income is logged that day and simply leaves less on hand. Only
+ * when the whole window has passed without income (the period is stretched) is everything still due its own again.
  */
 export function billsHorizon(p, settings, today) {
   const cfg = p.kind === 'cycle' && p.open ? payCycle(settings) : null;
   if (!cfg) return p.end;
-  const payday = addDays(expectedEnd(p.start, cfg), 1); // the last day of the next window
-  const windowStart = dateInMonth(monthOf(payday), cfg.from);
-  return today < windowStart ? addDays(windowStart, -1) : p.end;
+  const expected = expectedEnd(p.start, cfg);
+  if (today > expected) return p.end; // the assumed payday is here or gone: no next window to wait for
+  const windowStart = dateInMonth(monthOf(addDays(expected, 1)), cfg.from);
+  return addDays(windowStart, -1);
 }
 
 /**
@@ -719,7 +723,10 @@ export function periodOutlook({ txs, period: p, settings, today, recurring = [],
   return { income, soFar: summary.net, incomeAhead, fixedAhead, days, dayToDay, net, rate: net / income, end: p.end };
 }
 
-/** Most repeated (category, amount, note) combos from the last 60 days → one-tap quick add. */
+/**
+ * Most repeated (category, amount, note) combos from the last 60 days → one-tap quick add. One pick per thing
+ * (category + note): lunch at RM 8 and at RM 11 is still lunch — the amount paid most often stands for it.
+ */
 export function quickPicks(txs, today, limit = 6) {
   const cutoffISO = addDays(today, -60);
   const counts = new Map();
@@ -732,9 +739,16 @@ export function quickPicks(txs, today, limit = 6) {
     if (t.date > e.last) e.last = t.date;
     counts.set(key, e);
   }
+  const seen = new Set();
   return [...counts.values()]
     .filter((e) => e.count >= 2)
     .sort((a, b) => b.count - a.count || (a.last < b.last ? 1 : -1))
+    .filter((e) => {
+      const name = `${e.categoryId}|${e.note}|${e.business ? 1 : 0}`;
+      if (seen.has(name)) return false;
+      seen.add(name);
+      return true;
+    })
     .slice(0, limit);
 }
 
