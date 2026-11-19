@@ -1,15 +1,35 @@
 // "记一笔" — the core logging flow: amount on a big keypad, then one tap on a category saves.
+// Kept bare: the amount, three small buttons (date, note, 创业), the few categories used most (the rest behind 更多),
+// and the keypad. Nothing explains itself until something is missing.
 import { html, icon, catIcon, mount } from '../html.js';
 import { openSheet, toast, confirmDialog } from '../overlays.js';
-import { openChoiceSheet } from './plan.js';
 import { haptic } from '../haptics.js';
 import { state, addTransaction, updateTransaction, deleteTransaction, restoreTransaction } from '../../data/store.js';
 import { activeCategories, categoryMap } from '../../core/categories.js';
 import { centsToInput, formatMoney, toCents } from '../../core/money.js';
-import { dayLabel, todayISO } from '../../core/dates.js';
+import { addDays, dayLabel, todayISO } from '../../core/dates.js';
 import { popLast } from '../motion.js';
 
 const MAX_INT_DIGITS = 8;
+const TOP_CATEGORIES = 4;   // shown at once; with 更多 as the fifth cell
+const FREQUENT_DAYS = 60;
+
+/**
+ * The categories used most in the last two months, most used first (ties: the order set in 设置 → 类别), `keep`
+ * always among them. With no more than five there is nothing to hide: all of them.
+ */
+function frequentCategories(cats, type, keep) {
+  if (cats.length <= TOP_CATEGORIES + 1) return cats;
+  const since = addDays(todayISO(), -FREQUENT_DAYS);
+  const counts = new Map();
+  for (const t of state.transactions) {
+    if (t.type === type && t.date >= since) counts.set(t.categoryId, (counts.get(t.categoryId) || 0) + 1);
+  }
+  const top = [...cats].sort((a, b) => (counts.get(b.id) || 0) - (counts.get(a.id) || 0) || a.order - b.order).slice(0, TOP_CATEGORIES);
+  const kept = keep && !top.some((c) => c.id === keep) ? cats.find((c) => c.id === keep) : null;
+  if (kept) top[top.length - 1] = kept;
+  return top;
+}
 
 /**
  * Open the entry sheet.
@@ -25,11 +45,13 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
     note: tx?.note || '',
     date: tx?.date || date || todayISO(),
     business: tx?.business && tx.categoryId !== 'business' ? true : false,
+    allCats: false,          // 更多 was tapped: every category is shown
+    noteOpen: !!tx?.note,    // the note field is on screen
   };
 
   const sheet = openSheet({
     title: editing ? '编辑记录' : '记一笔',
-    size: 'large',
+    size: 'auto',
     className: 'sheet-layer--entry',
     actions: editing ? html`<button type="button" class="btn btn--primary btn--small" data-save>保存</button>` : '',
     headerCenter: html`<div class="segmented entry__type" role="tablist" aria-label="类型">
@@ -49,17 +71,13 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
   const origClose = sheet.close;
   sheet.close = (r) => { window.removeEventListener('keydown', onKey); return origClose(r); };
 
-  function hintText() {
-    if (s.type === 'income') return s.categoryId ? '确认金额与类型后，点「保存」' : '输入金额，再选择收入类型';
-    if (editing) return '选好类别后，点右上角「保存」';
-    return s.amount ? '点一个类别就完成' : '输入金额，再点类别就完成';
-  }
-
   function render() {
     const cats = activeCategories(state.categories, s.type);
-    const hint = hintText();
-    const incomeCat = s.type === 'income' ? cats.find((c) => c.id === s.categoryId) : null;
+    const shown = s.allCats ? cats : frequentCategories(cats, s.type, s.categoryId);
+    const folds = cats.length > shown.length || s.allCats;
+    const today = todayISO();
     root.dataset.kind = s.type;
+    root.dataset.ready = String(!!toCents(s.amount) || editing || s.type === 'income');
     sheet.el.querySelectorAll('.entry__type [data-type]').forEach((b) => {
       const on = b.dataset.type === s.type;
       b.classList.toggle('is-active', on);
@@ -69,33 +87,28 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
       <div class="amount-display ${s.amount ? '' : 'is-empty'}" data-kind="${s.type}" aria-live="polite">
         <span class="amount-display__cur">RM</span><span class="amount-display__value">${amountText()}</span>
       </div>
-      <p class="entry__hint">${hint}</p>
+      <p class="entry__hint" aria-live="polite"></p>
       <div class="entry__meta">
-        <label class="chip chip--field">
-          ${icon('note')}
-          <input class="chip__input" type="text" name="note" maxlength="60" placeholder="备注（可选）" value="${s.note}" enterkeyhint="done" autocomplete="off">
-        </label>
-        <label class="chip chip--date">
-          ${icon('calendar')}<span>${dayLabel(s.date)}</span>
+        <label class="chip chip--date ${s.date === today ? 'chip--icon' : 'is-on'}">
+          ${icon('calendar')}${s.date === today ? '' : html`<span>${dayLabel(s.date)}</span>`}
           <input class="chip__overlay" type="date" name="date" value="${s.date}" max="2099-12-31" aria-label="日期">
         </label>
+        <button type="button" class="chip chip--icon chip--toggle ${s.noteOpen ? 'is-on' : ''}" data-note aria-label="备注" aria-pressed="${s.noteOpen}">${icon('note')}</button>
         ${s.type === 'expense' ? html`
-          <button type="button" class="chip chip--toggle ${s.business || s.categoryId === 'business' ? 'is-on' : ''}" data-business aria-pressed="${s.business}">
-            ${icon('business')}<span>创业</span>
-          </button>` : ''}
+          <button type="button" class="chip chip--toggle ${s.business || s.categoryId === 'business' ? 'is-on' : ''}" data-business aria-pressed="${s.business}">创业</button>` : ''}
       </div>
-      ${s.type === 'income' ? html`
-        <button type="button" class="type-picker ${incomeCat ? 'is-set' : ''}" data-pick-type aria-haspopup="dialog">
-          ${incomeCat ? catIcon(incomeCat, 'cat-icon--xs') : icon('list')}
-          <span class="type-picker__label">类型${incomeCat ? html`<span class="type-picker__value">：${incomeCat.name}</span>` : ''}</span>
-          ${icon('chevron-down', 'type-picker__chevron')}
-        </button>` : html`
-      <div class="cat-grid" role="group" aria-label="类别">
-        ${cats.map((c) => html`
+      ${s.noteOpen ? html`<label class="chip chip--field entry__note">
+        <input class="chip__input" type="text" name="note" maxlength="60" placeholder="备注" value="${s.note}" enterkeyhint="done" autocomplete="off">
+      </label>` : ''}
+      <div class="cat-grid ${s.allCats ? 'is-all' : ''}" role="group" aria-label="${s.type === 'income' ? '收入类型' : '类别'}">
+        ${shown.map((c) => html`
           <button type="button" class="cat-grid__item ${s.categoryId === c.id ? 'is-selected' : ''}" data-cat="${c.id}" aria-pressed="${s.categoryId === c.id}">
             ${catIcon(c)}<span class="cat-grid__label">${c.name}</span>
           </button>`)}
-      </div>`}
+        ${folds ? html`<button type="button" class="cat-grid__item cat-grid__more" data-all-cats aria-expanded="${s.allCats}">
+          <span class="cat-icon cat-icon--more">${icon('chevron-down')}</span><span class="cat-grid__label">${s.allCats ? '收起' : '更多'}</span>
+        </button>` : ''}
+      </div>
       <div class="keypad" role="group" aria-label="数字键盘">
         ${['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0'].map((k) => html`<button type="button" class="keypad__key" data-key="${k}">${k}</button>`)}
         <button type="button" class="keypad__key keypad__key--fn" data-key="del" aria-label="删除">${icon('backspace')}</button>
@@ -103,6 +116,12 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
       ${s.type === 'income' && !editing ? html`<button type="button" class="btn btn--primary btn--large btn--block entry__save" data-save>保存收入</button>` : ''}
       ${editing ? html`<button type="button" class="btn btn--plain btn--danger entry__delete" data-delete>${icon('trash')}删除这笔记录</button>` : ''}
     `);
+  }
+
+  /** Say what is missing (the sheet explains itself only then). */
+  function hint(text) {
+    const el = root.querySelector('.entry__hint');
+    if (el) el.textContent = text;
   }
 
   function amountText() {
@@ -115,8 +134,9 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
   function updateAmount(grew = false) {
     const box = root.querySelector('.amount-display');
     box.classList.toggle('is-empty', !s.amount);
+    root.dataset.ready = String(!!toCents(s.amount) || editing || s.type === 'income');
     popLast(box.querySelector('.amount-display__value'), amountText(), grew);
-    root.querySelector('.entry__hint').textContent = hintText();
+    hint('');
   }
 
   function press(k) {
@@ -160,21 +180,25 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
     if (t && t.dataset.type !== s.type) {
       s.type = t.dataset.type;
       s.categoryId = s.type === 'income' ? lastIncomeCategory() : null;
+      s.allCats = false;
       haptic();
       render();
       return;
     }
 
-    if (e.target.closest('[data-pick-type]')) {
+    if (e.target.closest('[data-all-cats]')) {
+      s.allCats = !s.allCats;
       haptic();
-      const cats = activeCategories(state.categories, 'income');
-      const picked = await openChoiceSheet({
-        title: '收入类型',
-        options: cats.map((c) => ({ id: c.id, label: c.name, hint: c.hint, cat: c })),
-        value: s.categoryId,
-        footer: '可以在「设置 → 类别 → 收入类别」新增或改名。',
-      });
-      if (picked) { s.categoryId = picked; render(); }
+      render();
+      return;
+    }
+
+    if (e.target.closest('[data-note]')) {
+      s.noteOpen = !s.noteOpen;
+      if (!s.noteOpen) s.note = '';
+      haptic();
+      render();
+      if (s.noteOpen) root.querySelector('input[name="note"]')?.focus({ preventScroll: true });
       return;
     }
 
@@ -188,7 +212,8 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
     const cat = e.target.closest('[data-cat]');
     if (cat) {
       s.categoryId = cat.dataset.cat;
-      if (editing) { haptic(); render(); return; }
+      // An expense is saved by the tap on its category; an income (or an edit) by its button.
+      if (editing || s.type === 'income') { haptic(); render(); return; }
       await save();
       return;
     }
@@ -214,10 +239,10 @@ export function openEntrySheet({ tx = null, type = 'expense', date = null } = {}
 
   async function save() {
     const cents = toCents(s.amount);
-    if (!cents) { shake(); root.querySelector('.entry__hint').textContent = '先输入金额'; return; }
+    if (!cents) { shake(); hint('先输入金额'); return; }
     if (!s.categoryId) {
       haptic('error');
-      root.querySelector('.entry__hint').textContent = s.type === 'income' ? '请先选择收入类型' : '请选择一个类别';
+      hint(s.type === 'income' ? '请先选择收入类型' : '请选择一个类别');
       return;
     }
     const data = { type: s.type, amount: cents, categoryId: s.categoryId, note: s.note, date: s.date, business: s.type === 'expense' && s.business };
