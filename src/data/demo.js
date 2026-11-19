@@ -26,6 +26,17 @@ const DAILY = [
   ['learning', '书', 30, 80, 0.02],
 ];
 
+// When in the day each of these is usually typed in, so the demo's rows carry a time like real ones do.
+const HOUR = { '早餐 · 咖啡': 8, '午餐': 12, '晚餐': 19, GrabFood: 20, Grab: 18, '超市': 17, '朋友聚餐': 21, Shopee: 22, 'Meta 广告': 10, '书': 15 };
+
+/** The moment a demo entry was "typed in": on its own day, never in the future. Fixed items keep their running number. */
+function typedAt(date, note, n) {
+  const hour = HOUR[note];
+  if (hour === undefined) return n;
+  const [y, m, d] = date.split('-').map(Number);
+  return Math.min(new Date(y, m - 1, d, hour, (n * 37) % 60).getTime(), Date.now());
+}
+
 /** variant '1': investing already started · variant '2': still preparing (no holdings yet). */
 export function buildDemoData(today, variant = '1') {
   const rand = rng(20260923);
@@ -34,9 +45,10 @@ export function buildDemoData(today, variant = '1') {
   let n = 0;
   const add = (date, categoryId, rm, note = '', extra = {}) => {
     n += 1;
+    const at = typedAt(date, note, n);
     transactions.push({
       id: `demo-${n}`, type: 'expense', amount: Math.round(rm * 100), categoryId, date, note,
-      business: categoryId === 'business', createdAt: n, updatedAt: n, ...extra,
+      business: categoryId === 'business', createdAt: at, updatedAt: at, ...extra,
     });
   };
 
