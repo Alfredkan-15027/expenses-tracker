@@ -109,12 +109,12 @@ test('one late payment covers one scheduled contribution, not two', () => {
 test('the goal card counts down in days in the last month and says 已到期 only after the deadline', () => {
   const flows = [{ holdingId: 'h', type: 'in', amount: RM(1_000_000), date: '2030-05-20', createdAt: 1 }];
   const at = (today) => render({ flows, today });
-  assert.match(at('2040-05-06'), /还剩 14 天 ·/);
-  assert.match(at('2040-05-19'), /还剩 1 天 ·/);
-  assert.match(at('2040-02-20'), /还剩 3 个月 ·/);
-  assert.match(at('2037-11-21'), /还剩 2 年 5 个月 ·/);
+  assert.match(at('2040-05-06'), /还剩 14 天 \d/);
+  assert.match(at('2040-05-19'), /还剩 1 天 \d/);
+  assert.match(at('2040-02-20'), /还剩 3 个月 \d/);
+  assert.match(at('2037-11-21'), /还剩 2 年 5 个月 \d/);
   const after = at('2040-05-20');
-  assert.match(after, /已到期 ·/);
+  assert.match(after, /已到期 \d/);
   assert.doesNotMatch(after, /还剩 已到期/);
 });
 

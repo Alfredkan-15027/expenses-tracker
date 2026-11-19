@@ -86,7 +86,8 @@ test('payday: 储蓄率 and 结余 show where the period is heading, the same fi
   assert.equal(tile[1], sav.figure);
   assert.deepEqual([tile[1], tile[2]], ['4%', 'RM 160']);
   assert.doesNotMatch(page, /目前储蓄率/);
-  const home = text(today.render({ state, today: '2026-11-14' }));
+  // 分析's period card (the running period only) shows the same projection
+  const home = page;
   assert.match(home, new RegExp(`本期预计结余 ${tile[2].replace(/[$()*+.?[\\\]^{|}]/g, '\\$&')}`));
   // A shortfall is measured from the projection
   assert.match(sav.body, /预计距离每期存款目标 RM 1,000 还差 RM 840/);

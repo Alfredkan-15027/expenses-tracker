@@ -267,19 +267,19 @@ test('the 钱花在哪一类 card uses personal spending, like the insight (busi
   const ins = buildInsights({ txs, ym: '2026-09', categories: DEFAULT_CATEGORIES, profile: {}, settings, today: '2026-10-05' });
   assert.match(ins.find((i) => i.title === '享受型开销占比偏高').body, /38%/);
   const html = render({ txs, settings }, '2026-10-05', '2026-09');
-  const card = text(html.slice(html.indexOf('card--groups')));
+  const card = text(html.slice(html.indexOf('groups-box')));
   assert.match(card, /生活享受 38%/);
   assert.match(card, /必要开销 62%/);
   assert.match(card, /创业投入 RM 2,000 另计/);
   assert.doesNotMatch(card, /创业投入 49%/);
-  // The category bar's legend is on the same base as the rows (购物 38% of personal spending)
-  assert.match(text(html), /购物 38%/);
+  // The category rows are on the same base (购物 is 38% of personal spending)
+  assert.match(text(html), /购物 [^%]*38%/);
 });
 
 test('a category the running period flags is listed in 类别明细, even with nothing spent on it yet', () => {
   const txs = [tx('2026-09-10', RM(1200), 'shopping'), ...daily('2026-09-01', '2026-10-03', RM(20))];
   const html = render({ txs, settings: { startDate: '2026-09-01' } }, '2026-10-03');
-  const list = text(html.slice(html.indexOf('类别明细'), html.indexOf('card--groups')));
+  const list = text(html.slice(html.indexOf('class="list list--plain"'), html.indexOf('吉隆坡 24 岁创业者对照')));
   assert.match(list, /购物/);
   assert.match(list, /每月约 RM 1,091/);
 });
@@ -304,7 +304,7 @@ test('runway shows the figure its verdict is judged on: 5.96 months is 5.9, shor
   const txs = daily('2026-09-11', '2026-10-10', RM(100)); // RM 3,000 a month
   const show = (savings) => {
     const html = render({ txs, settings: { startDate: '2026-09-11', currentSavings: savings } }, '2026-10-10');
-    return { tone: html.match(/card--runway" data-tone="(\w+)"/)[1], page: text(html.slice(html.indexOf('个人 Runway'))), shown: html.match(/runway__value">([^<]+)</)[1] };
+    return { tone: html.match(/card runway" data-tone="(\w+)"/)[1], page: text(html.slice(html.indexOf('个人 Runway'))), shown: html.match(/runway__value">([^<]+)</)[1] };
   };
   const short = show(RM(17890));
   assert.equal(short.shown, '5.9');
@@ -327,7 +327,7 @@ test('trend bars are each held against their own period\'s budget', () => {
   // On the screen, without expected income: August is judged against August's income
   const txs = [inc('2026-08-01', RM(6000)), tx('2026-08-05', RM(4500)), inc('2026-09-01', RM(3000)), tx('2026-09-05', RM(2000))];
   const html = render({ txs, settings: { startDate: '2026-08-01', savingsTarget: RM(500) } }, '2026-09-20');
-  assert.doesNotMatch(html, /is-over/);
+  assert.doesNotMatch(html, /trend__bar is-over/);
   assert.doesNotMatch(html, /trend__budget/);
   // With expected income the line is the same for every period and is drawn
   const planned = render({ txs, settings: { startDate: '2026-08-01', savingsTarget: RM(500), expectedIncome: RM(4000) } }, '2026-09-20');

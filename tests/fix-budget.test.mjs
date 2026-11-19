@@ -25,14 +25,15 @@ globalThis.window ??= globalThis;
 globalThis.document ??= { addEventListener: noop, getElementById: () => el(), createElement: el, querySelector: () => null, querySelectorAll: () => [], documentElement: el(), body: el() };
 globalThis.matchMedia ??= () => ({ matches: false, addEventListener: noop });
 const todayScreen = (await import('../src/ui/screens/today.js')).default;
+const insightsScreen = (await import('../src/ui/screens/insights.js')).default;
 const text = (h) => h.replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 function renderToday({ txs, settings, recurring = [], today }) {
-  const out = String(todayScreen.render({
-    state: { transactions: txs, recurring, categories: DEFAULT_CATEGORIES, settings: { ...settings, onboarded: true }, holdings: [], investFlows: [] },
-    today, demo: true,
-  }));
-  const hero = out.match(/<section class="card card--hero"[\s\S]*?<\/section>/)?.[0] || '';
-  const rings = out.match(/<section class="card card--rings"[\s\S]*?<\/section>/)?.[0] || '';
+  const state = { transactions: txs, recurring, categories: DEFAULT_CATEGORIES, settings: { ...settings, onboarded: true }, holdings: [], investFlows: [], valuations: [] };
+  const out = String(todayScreen.render({ state, today, demo: true }));
+  // 今天: the figure lives in the scene, its warning and small print at the top of the panel.
+  const hero = (out.match(/<section class="scene scene--today"[\s\S]*?<\/section>/)?.[0] || '') + (out.match(/<section class="hero-notes"[\s\S]*?<\/section>/)?.[0] || '');
+  // 分析: how the period is going (spent against the budget, the balance it is heading for).
+  const rings = String(insightsScreen.render({ state, today })).match(/<section class="card period"[\s\S]*?<\/section>/)?.[0] || '';
   return { hero, rings, heroText: text(hero), ringsText: text(rings) };
 }
 
@@ -178,8 +179,8 @@ test('Today: a RM 0 budget (savings target = income) is a plan that is exceeded,
   assert.doesNotMatch(ringsText, /未设定预算/);
   assert.match(ringsText, /预算为 RM 0/);
   assert.match(rings, /data-tone="over"/);
-  assert.match(rings, /ring--over/);
-  assert.match(hero, /progress__fill" style="width:100\.00%"/);
+  assert.match(rings, /progress--bad/);
+  assert.match(rings, /progress__fill" style="width:100\.00%"/);
   // Nothing spent yet: an empty ring, still not "未设定预算"
   const none = renderToday({ txs: [], settings, today: '2026-11-10' });
   assert.match(none.ringsText, /预算为 RM 0/);

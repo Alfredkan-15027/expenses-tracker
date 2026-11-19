@@ -187,7 +187,7 @@ test('shares of one whole add up to 100%', () => {
     const out = strip(insights.render({ state, today: '2026-10-12' }));
     const groups = out.slice(out.indexOf('钱花在哪一类'), out.indexOf('建议：必要开销'));
     assert.equal([...groups.matchAll(/(\d+)%/g)].reduce((a, m) => a + Number(m[1]), 0), 100, groups);
-    const rows = [...out.matchAll(/参考 \d+–\d+[^%]*? · (\d+)%/g)];
+    const rows = [...String(insights.render({ state, today: '2026-10-12' })).matchAll(/class="row__share">.*?<b>(\d+)%<\/b>/g)];
     assert.equal(rows.length, 3);
     assert.equal(rows.reduce((a, m) => a + Number(m[1]), 0), 100);
   }
@@ -208,10 +208,13 @@ test('记录 search: 支出 / 收入 / 笔数 cover every match, only the list i
     ...Array.from({ length: 350 }, (_, i) => tx(addDays('2026-10-12', -i), 420, 'food', { note: 'kopi' })),
     ...Array.from({ length: 20 }, (_, i) => ({ ...income(addDays('2025-09-01', -i), 1000), note: 'kopi refund' })),
   ];
-  const summary = search('kopi', txs).match(/在所有月份中找到.*?笔数 \d+/)?.[0];
-  assert.equal(summary, '在所有月份中找到 370 笔（下面只列出最近 300 笔） 支出 RM 1,470.00 收入 RM 200.00 笔数 370');
+  const out = search('kopi', txs);
+  const summary = out.match(/在所有月份中找到.*?收入 RM [\d,.]+/)?.[0];
+  assert.equal(summary, '在所有月份中找到 370 笔 · 支出 RM 1,470 .00 收入 RM 200.00');
+  // The rows come a page at a time; 查看更多 says how many are left
   const shown = (String(history.render({ state: stateOf(txs), today: '2026-10-12' })).match(/data-action="edit-tx"/g) || []).length;
-  assert.equal(shown, 300);
+  assert.equal(shown, 12);
+  assert.match(out, /查看更多 还有 358 笔/);
 });
 
 test('记录 search: an amount typed the way it is shown ("1,234", "RM 1,234.00") finds the entry', () => {
