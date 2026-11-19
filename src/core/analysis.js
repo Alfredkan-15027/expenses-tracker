@@ -166,7 +166,8 @@ export function spendingModel({ txs, recurring = [], today, since = '' }) {
     }
     for (const t of best.values()) standIns.add(t);
   }
-  const coversFixed = (t) => !!t.recurringId || standIns.has(t);
+  const lateBills = new Set([...paidByHand(txs, recurring).values()].map((t) => t.id)); // also last month's bill paid late
+  const coversFixed = (t) => !!t.recurringId || standIns.has(t) || lateBills.has(t.id);
 
   const expenses = txs.filter((t) => t.type === 'expense' && t.date <= today);
   let from = since || expenses.reduce((a, t) => (!a || t.date < a ? t.date : a), '');

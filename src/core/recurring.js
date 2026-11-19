@@ -79,7 +79,8 @@ export function sameBill(t, { type, categoryId, amount, note }) {
 
 /**
  * Fixed-item months paid by hand: an entry typed in that month that looks like the item's charge (sameBill) while
- * the item logged nothing itself that month. One entry stands for one item only (largest items first).
+ * the item logged nothing itself that month — or, paid late, a month before it that went unpaid (see arrears below).
+ * One entry stands for one item only (largest items first).
  * Map(`${itemId}|${YYYY-MM}` → the entry).
  */
 export function paidByHand(txs = [], recurring = []) {
@@ -98,8 +99,25 @@ export function paidByHand(txs = [], recurring = []) {
       used.add(t.id);
     }
   }
+  // Arrears: a bill typed in for a month that already has its charge, while the month just before it has none — last
+  // month's water bill paid late. It settles that month. Only the month before: a bill further back is too unsure a
+  // guess. Utility bills vary from month to month, so the same note (水费) is enough here as well as a near amount.
+  for (const r of items) {
+    for (const t of txs) {
+      if (t.recurringId || used.has(t.id) || !(sameBill(t, r) || sameNote(t, r))) continue;
+      const ym = monthOf(t.date);
+      if (!logged.has(`${r.id}|${ym}`) && !out.has(`${r.id}|${ym}`)) continue;
+      const m = addMonths(ym, -1);
+      const key = `${r.id}|${m}`;
+      if ((r.startMonth && r.startMonth > m) || logged.has(key) || out.has(key)) continue;
+      out.set(key, t);
+      used.add(t.id);
+    }
+  }
   return out;
 }
+
+const sameNote = (t, r) => t.type === r.type && t.categoryId === r.categoryId && !!(t.note || '').trim() && (t.note || '').trim() === (r.note || '').trim();
 
 /**
  * An entry this month that looks like the same fixed item: typed in by hand, or (when `recurring` is passed) logged
