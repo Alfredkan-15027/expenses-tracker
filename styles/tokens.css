@@ -1,217 +1,301 @@
 /* ==========================================================================
-   Expenses Tracker — design tokens (iOS 27 Liquid Glass)
-   CODEX-EDITABLE. Every color, radius, blur and motion value lives here.
+   Expenses Tracker — design tokens ("Tide", 1.5)
+   CODEX-EDITABLE. Every colour, radius, blur and motion value lives here.
    Light values on :root, dark values in the prefers-color-scheme block.
+
+   The idea: money is a liquid. Each page opens on a *scene* (a living picture of its one key figure — on 今天
+   that is real water whose level is what today may still spend), and its details ride on a *panel* that slides
+   up over the scene. Floating controls (the dock, the round buttons, sheets, toasts) are glass.
+
+   Layers, back to front:
+   1. canvas   --bg, plus the scene's own light (--scene-a / --scene-b, set per page in screens.css)
+   2. panel    --panel: the sheet of content over the scene
+   3. surface  --surface: cards and tiles on the panel
+   4. glass    --glass-*: dock, round buttons, sheets, alerts, toasts (real backdrop blur)
    ========================================================================== */
+
+/* Registered so the scene light can fade when the page (or the mood of 今天) changes. */
+@property --scene-a { syntax: "<color>"; inherits: true; initial-value: #3b82ff; }
+@property --scene-b { syntax: "<color>"; inherits: true; initial-value: #22d3ee; }
 
 :root {
   color-scheme: light dark;
 
   /* ── Typography ─────────────────────────────────────────────────────── */
   --font-text: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
-  --font-rounded: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "PingFang SC", system-ui, sans-serif;
+  --font-round: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-display: var(--font-round);
+  --font-rounded: var(--font-round);
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 
-  --text-large-title: 700 34px/41px var(--font-display);
-  --text-title1: 700 28px/34px var(--font-display);
-  --text-title2: 700 22px/28px var(--font-display);
-  --text-title3: 600 20px/25px var(--font-display);
-  --text-headline: 600 17px/22px var(--font-text);
-  --text-body: 400 17px/22px var(--font-text);
-  --text-callout: 400 16px/21px var(--font-text);
-  --text-subhead: 400 15px/20px var(--font-text);
+  --text-large-title: 800 32px/38px var(--font-round);
+  --text-title1: 800 28px/34px var(--font-round);
+  --text-title2: 700 22px/28px var(--font-round);
+  --text-title3: 700 19px/24px var(--font-round);
+  --text-headline: 600 16px/22px var(--font-text);
+  --text-body: 400 16px/22px var(--font-text);
+  --text-callout: 400 15px/21px var(--font-text);
+  --text-subhead: 400 14px/19px var(--font-text);
   --text-footnote: 400 13px/18px var(--font-text);
   --text-caption: 400 12px/16px var(--font-text);
-  --text-caption2: 500 11px/13px var(--font-text);
+  --text-caption2: 600 11px/13px var(--font-text);
 
-  /* ── Surfaces & labels (light) ──────────────────────────────────────── */
-  --bg: #f3f5f9;                 /* quiet canvas beneath floating surfaces */
-  --bg-elevated: #ffffff;        /* secondarySystemGroupedBackground */
-  --bg-tertiary: #edf0f5;
-  --sheet-bg: rgba(247, 249, 252, 0.98);
-  --sheet-surface: #ffffff;       /* grouped content inside sheets */
-  --label: #111827;
-  --label-2: #535b69;
-  --label-3: #707886;
-  --label-4: rgba(60, 60, 67, 0.18);
-  --separator: rgba(27, 41, 61, 0.14);
-  --surface-highlight: rgba(255, 255, 255, 0.72);
-  --fill: rgba(120, 120, 128, 0.2);
-  --fill-2: rgba(120, 120, 128, 0.16);
-  --fill-3: rgba(118, 118, 128, 0.12);
-  --fill-4: rgba(116, 116, 128, 0.08);
+  /* ── Canvas, panel, surfaces (light) ────────────────────────────────── */
+  --bg: #e9edf5;                 /* the canvas behind every scene */
+  --panel: #f5f6fa;              /* the content panel that slides over the scene */
+  --panel-edge: inset 0 1px 0 #ffffff, 0 -18px 40px -24px rgba(20, 35, 80, 0.28);
+  --surface: #ffffff;            /* cards and tiles on the panel */
+  --surface-2: #eef0f6;          /* wells inside a card: keys, fields, tracks */
+  --surface-rim: 0 0 0 0.5px rgba(15, 25, 60, 0.06);
+  --surface-shadow: 0 1px 1px rgba(15, 25, 60, 0.03), 0 12px 28px -18px rgba(20, 35, 80, 0.28);
+  --bg-elevated: #ffffff;        /* a surface as a solid colour (gaps round markers, rows while swiped) */
+  --bg-tertiary: #e4e7ef;
+
+  --label: #0a0c14;
+  --label-2: #565d70;
+  --label-3: #8a91a4;
+  --label-4: rgba(20, 30, 60, 0.16);
+  --separator: rgba(15, 25, 60, 0.08);
+  --fill: rgba(40, 50, 90, 0.16);
+  --fill-2: rgba(40, 50, 90, 0.12);
+  --fill-3: rgba(40, 50, 90, 0.08);
+  --fill-4: rgba(40, 50, 90, 0.05);
+  --surface-highlight: rgba(255, 255, 255, 0.9);
+
+  /* Ink: the primary button and the selected segment are solid ink, not a colour. */
+  --ink: #0a0c14;
+  --on-ink: #ffffff;
   --on-accent: #ffffff;
 
-  /* ── System palette (iOS 26/27 values) ──────────────────────────────── */
-  --c-red: #ff383c;
-  --c-orange: #ff8d28;
-  --c-yellow: #ffcc00;
-  --c-green: #34c759;
-  --c-mint: #00c8b3;
-  --c-teal: #00c3d0;
-  --c-cyan: #00c0e8;
-  --c-blue: #0088ff;
-  --c-indigo: #6155f5;
-  --c-purple: #cb30e0;
-  --c-pink: #ff2d55;
-  --c-brown: #ac7f5e;
-  --c-gray: #8e8e93;
+  /* ── Palette ────────────────────────────────────────────────────────── */
+  --c-red: #f04a4a;
+  --c-orange: #f7862b;
+  --c-yellow: #eab308;
+  --c-green: #22b565;
+  --c-mint: #10b9a0;
+  --c-teal: #0fb0c6;
+  --c-cyan: #1aaeea;
+  --c-blue: #3b7bff;
+  --c-indigo: #6a5cf6;
+  --c-purple: #a653f5;
+  --c-pink: #ee4680;
+  --c-brown: #a67c5b;
+  --c-gray: #838a9a;
+  --cat-ink: #000000;            /* a category glyph is its colour, pulled towards this for contrast */
+  --cat-wash: 15%;               /* … on a wash of the same colour this strong */
 
-  --accent: #086bdc;
-  --accent-ink: #075dc0;         /* contrast-safe blue on light surfaces */
-  --income: #187438;
+  --accent: #2f6bff;
+  --accent-2: #19c3ea;           /* the second stop of the brand gradient: blue → aqua */
+  --accent-ink: #1f55e0;         /* contrast-safe on light surfaces */
+  --income: #0b8a52;
 
   /* Status (reserved — never used for categories) */
-  --good: #34c759;   --good-ink: #176b31;   --good-bg: rgba(52, 199, 89, 0.13);
-  --warn: #ff8d28;   --warn-ink: #984800;   --warn-bg: rgba(255, 141, 40, 0.14);
-  --bad: #ff383c;    --bad-ink: #b71622;    --bad-bg: rgba(255, 56, 60, 0.12);
-  --info: #0088ff;   --info-ink: #075dc0;   --info-bg: rgba(0, 136, 255, 0.12);
+  --good: #16b871;   --good-ink: #0a7a4a;   --good-bg: rgba(22, 184, 113, 0.13);
+  --warn: #f59316;   --warn-ink: #9a5200;   --warn-bg: rgba(245, 147, 22, 0.15);
+  --bad: #f0453d;    --bad-ink: #bf241c;    --bad-bg: rgba(240, 69, 61, 0.12);
+  --info: #2f6bff;   --info-ink: #1f55e0;   --info-bg: rgba(47, 107, 255, 0.11);
   --muted-bg: var(--fill-3);
 
-  /* Month-over-month: warm = more spending, cool = less */
-  --delta-up: #ff8d28;
-  --delta-down: #00a9c0;
+  --delta-up: #f59316;           /* compared with last period: warm = more spending, cool = less */
+  --delta-down: #10a7bd;
 
-  /* Rings */
-  --ring-spend: #ff8d28;
-  --ring-over: #ff383c;
-  --ring-save: #34c759;
+  /* The scene's light. Each page sets its own pair (screens.css); these are the defaults (今天). */
+  --scene-a: #3b82ff;
+  --scene-b: #22d3ee;
+  --scene-mix: 30%;              /* how strong the light is on the canvas */
+  --scene-warn-a: #ff9d2e;  --scene-warn-b: #ffd166;
+  --scene-bad-a: #ff5a52;   --scene-bad-b: #ff9d2e;
 
-  /* Investment projection chart */
-  --proj-band: color-mix(in srgb, var(--c-blue) 16%, transparent);
-  --proj-edge: color-mix(in srgb, var(--c-blue) 70%, transparent);
-  --proj-actual: var(--c-green);
-  --proj-target: var(--c-orange);
+  /* Water (src/ui/water.js reads these) */
+  --water-top: rgba(74, 150, 255, 0.5);
+  --water-bottom: rgba(22, 196, 236, 0.74);
+  --water-back: rgba(60, 116, 255, 0.3);
+  --water-line: rgba(255, 255, 255, 0.95);
+  --water-glint: rgba(255, 255, 255, 0.5);
 
-  /* ── Liquid Glass material ──────────────────────────────────────────── */
-  /* iOS 27: less transparent than iOS 26, darker defined edge, brighter specular highlight. */
-  --glass-bg: rgba(252, 253, 255, 0.86);
-  --glass-bg-strong: rgba(248, 250, 253, 0.96);
-  --glass-blur: 24px;
-  --glass-saturate: 155%;
-  --glass-edge: rgba(25, 41, 64, 0.17);
-  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.98), inset 0 -1px 0 rgba(255, 255, 255, 0.42);
-  --glass-shadow: 0 5px 16px rgba(22, 39, 67, 0.09);
-  --glass-selected: rgba(36, 57, 86, 0.11);   /* selected tab is darker than the glass */
-  --scrim: rgba(0, 0, 0, 0.22);
+  /* Charts */
+  --ring-spend: var(--accent);
+  --ring-over: var(--bad);
+  --ring-save: var(--good);
+  --proj-band: color-mix(in srgb, var(--scene-a) 20%, transparent);
+  --proj-edge: color-mix(in srgb, var(--scene-a) 80%, transparent);
+  --proj-actual: var(--label);
+  --proj-target: var(--label-3);
+
+  /* ── Glass ──────────────────────────────────────────────────────────── */
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-bg-strong: rgba(250, 251, 254, 0.86);
+  --glass-blur: 26px;
+  --glass-saturate: 190%;
+  --glass-edge: rgba(15, 30, 70, 0.1);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.98), inset 0 0 0 1px rgba(255, 255, 255, 0.5), inset 0 -1px 0 rgba(255, 255, 255, 0.36);
+  --glass-shadow: 0 2px 6px rgba(15, 30, 70, 0.06), 0 18px 36px -12px rgba(15, 30, 80, 0.3);
+  --glass-selected: rgba(255, 255, 255, 0.94);       /* the lens under the selected tab */
+  --glass-selected-shadow: inset 0 1px 0 #ffffff, 0 0 0 0.5px rgba(15, 30, 70, 0.08), 0 6px 16px -6px rgba(15, 30, 80, 0.3);
+  --sheet-bg: rgba(244, 246, 251, 0.86);
+  --sheet-surface: rgba(255, 255, 255, 0.78);
+  --sheet-surface-solid: #fbfcfe;
+  --sheet-well: rgba(40, 50, 90, 0.07);
+  --nav-fade: rgba(245, 246, 250, 0.84);
+  --scrim: rgba(8, 14, 34, 0.32);
 
   /* ── Shape ──────────────────────────────────────────────────────────── */
   --radius-xs: 8px;
   --radius-sm: 12px;
-  --radius-md: 16px;
+  --radius-md: 18px;
   --radius-lg: 22px;
   --radius-card: 26px;
+  --radius-panel: 34px;
   --radius-sheet: 38px;
   --radius-pill: 999px;
-  --cat-radius: 30%;
+  --cat-radius: 50%;
 
   /* ── Spacing & sizes ────────────────────────────────────────────────── */
   --gutter: 16px;
-  --section-gap: 28px;
-  --row-min: 52px;
-  --navbar-h: 52px;
-  --tabbar-h: 60px;
+  --section-gap: 30px;
+  --row-min: 60px;
+  --navbar-h: 56px;
+  --tabbar-h: 66px;               /* the dock */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --tabbar-bottom: max(calc(var(--safe-bottom) - 10px), 12px);
+  --tabbar-bottom: max(calc(var(--safe-bottom) - 10px), 14px);
 
   /* ── Motion ─────────────────────────────────────────────────────────── */
   --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-pop: cubic-bezier(0.34, 1.45, 0.64, 1);
+  --ease-jelly: linear(0, 0.37 6%, 0.84 13.5%, 1.11 20%, 1.2 24.5%, 1.19 29%, 1.02 43%, 0.97 51.5%, 0.99 65%, 1);
   --dur-fast: 160ms;
-  --dur: 260ms;
-  --dur-sheet: 420ms;
-  --ease-pop: cubic-bezier(0.34, 1.45, 0.64, 1);   /* a small overshoot: digits, toasts, dots, new rows */
+  --dur: 280ms;
+  --dur-sheet: 460ms;
   --dur-pop: 520ms;
-  --dur-enter: 620ms;   /* rings, bars and cards when a page opens */
-  --stagger: 38ms;      /* delay between neighbours in a sequence */
+  --dur-enter: 700ms;
+  --stagger: 44ms;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #080b11;
-    --bg-elevated: #1b202a;
-    --bg-tertiary: #282f3b;
-    --sheet-bg: rgba(30, 36, 47, 0.98);
-    --sheet-surface: #303847;
-    --label: #f7f9fd;
-    --label-2: #b9c2d1;
-    --label-3: #98a4b6;
-    --label-4: rgba(235, 235, 245, 0.18);
-    --separator: rgba(190, 204, 226, 0.16);
-    --surface-highlight: rgba(255, 255, 255, 0.16);
-    --fill: rgba(120, 120, 128, 0.36);
-    --fill-2: rgba(120, 120, 128, 0.32);
-    --fill-3: rgba(118, 118, 128, 0.24);
-    --fill-4: rgba(118, 118, 128, 0.18);
+    --bg: #05060a;
+    --panel: #0c0e14;
+    --panel-edge: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 -24px 50px -22px rgba(0, 0, 0, 0.9);
+    --surface: #151821;
+    --surface-2: #1e222d;
+    --surface-rim: inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+    --surface-shadow: 0 18px 34px -24px rgba(0, 0, 0, 0.9);
+    --bg-elevated: #151821;
+    --bg-tertiary: #262b38;
 
-    --c-red: #ff4245;
-    --c-orange: #ff9230;
-    --c-yellow: #ffd600;
-    --c-green: #30d158;
-    --c-mint: #00dac3;
-    --c-teal: #00d2e0;
-    --c-cyan: #3cd3fe;
-    --c-blue: #0091ff;
-    --c-indigo: #6d7cff;
-    --c-purple: #db34f2;
-    --c-pink: #ff375f;
-    --c-brown: #b78a66;
-    --c-gray: #98989d;
+    --label: #f4f6fb;
+    --label-2: #a5acbe;
+    --label-3: #70788b;
+    --label-4: rgba(220, 228, 250, 0.16);
+    --separator: rgba(210, 222, 255, 0.09);
+    --fill: rgba(160, 175, 215, 0.3);
+    --fill-2: rgba(160, 175, 215, 0.22);
+    --fill-3: rgba(160, 175, 215, 0.15);
+    --fill-4: rgba(160, 175, 215, 0.09);
+    --surface-highlight: rgba(255, 255, 255, 0.14);
 
-    --accent: #1768cf;
-    --accent-ink: #80beff;
-    --income: #30d158;
+    --ink: #f4f6fb;
+    --on-ink: #07080c;
 
-    --good: #30d158;   --good-ink: #73e690;   --good-bg: rgba(48, 209, 88, 0.17);
-    --warn: #ff9230;   --warn-ink: #ffc084;   --warn-bg: rgba(255, 146, 48, 0.17);
-    --bad: #ff4245;    --bad-ink: #ff9093;    --bad-bg: rgba(255, 66, 69, 0.17);
-    --info: #0091ff;   --info-ink: #87c4ff;   --info-bg: rgba(0, 145, 255, 0.16);
+    --c-red: #ff6a63;
+    --c-orange: #ff9a3d;
+    --c-yellow: #ffd43b;
+    --c-green: #3ddc84;
+    --c-mint: #2fe0c2;
+    --c-teal: #2fd4e6;
+    --c-cyan: #4cc9ff;
+    --c-blue: #5b93ff;
+    --c-indigo: #8a80ff;
+    --c-purple: #c27bff;
+    --c-pink: #ff6ba0;
+    --c-brown: #c79c78;
+    --c-gray: #9aa1b2;
+    --cat-ink: #ffffff;
+    --cat-wash: 20%;
 
-    --delta-up: #ff9230;
-    --delta-down: #3cd3fe;
-    --ring-spend: #ff9230;
-    --ring-over: #ff4245;
-    --ring-save: #30d158;
+    --accent: #4d86ff;
+    --accent-2: #2fd9f5;
+    --accent-ink: #8fb4ff;
+    --income: #3ddc84;
 
-    /* iOS 27 dark glass is noticeably lighter than iOS 26 */
-    --glass-bg: rgba(70, 78, 93, 0.88);
-    --glass-bg-strong: rgba(48, 57, 72, 0.97);
-    --glass-edge: rgba(3, 8, 18, 0.76);
-    --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.27), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
-    --glass-shadow: 0 6px 22px rgba(0, 0, 0, 0.23);
-    --glass-selected: rgba(6, 15, 30, 0.48);
-    --scrim: rgba(0, 0, 0, 0.5);
+    --good: #2fd98a;   --good-ink: #77eab2;   --good-bg: rgba(47, 217, 138, 0.16);
+    --warn: #ffab33;   --warn-ink: #ffcc80;   --warn-bg: rgba(255, 171, 51, 0.16);
+    --bad: #ff6259;    --bad-ink: #ffa19b;    --bad-bg: rgba(255, 98, 89, 0.17);
+    --info: #4d86ff;   --info-ink: #9dbdff;   --info-bg: rgba(77, 134, 255, 0.18);
+
+    --delta-up: #ffab33;
+    --delta-down: #2fd4e6;
+
+    --scene-a: #2f6bff;
+    --scene-b: #19c3ea;
+    --scene-mix: 34%;
+    --scene-warn-a: #e0791a;  --scene-warn-b: #c9a227;
+    --scene-bad-a: #e0443c;   --scene-bad-b: #d9741a;
+
+    --water-top: rgba(72, 146, 255, 0.86);
+    --water-bottom: rgba(14, 92, 214, 0.5);
+    --water-back: rgba(40, 84, 225, 0.52);
+    --water-line: rgba(190, 232, 255, 0.95);
+    --water-glint: rgba(170, 225, 255, 0.34);
+
+    --glass-bg: rgba(50, 58, 80, 0.52);
+    --glass-bg-strong: rgba(26, 31, 44, 0.86);
+    --glass-edge: rgba(0, 2, 8, 0.6);
+    --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+    --glass-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.8);
+    --glass-selected: rgba(255, 255, 255, 0.16);
+    --glass-selected-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 6px 16px -6px rgba(0, 0, 0, 0.6);
+    --sheet-bg: rgba(18, 21, 30, 0.84);
+    --sheet-surface: rgba(200, 215, 255, 0.075);
+    --sheet-surface-solid: #222632;
+    --sheet-well: rgba(200, 215, 255, 0.085);
+    --nav-fade: rgba(12, 14, 20, 0.84);
+    --scrim: rgba(0, 1, 6, 0.6);
   }
 }
 
 /* Accessibility: Increase Contrast / Reduce Transparency */
 @media (prefers-contrast: more) {
   :root {
-    --label-2: rgba(60, 60, 67, 0.85);
-    --separator: rgba(60, 60, 67, 0.4);
+    --label-2: #2e3442;
+    --label-3: #4a5163;
+    --separator: rgba(15, 25, 60, 0.4);
+    --surface-rim: 0 0 0 1px rgba(15, 25, 60, 0.4);
     --glass-bg: rgba(255, 255, 255, 0.96);
-    --glass-edge: rgba(0, 0, 0, 0.35);
+    --glass-bg-strong: #ffffff;
+    --glass-edge: rgba(0, 0, 0, 0.4);
+    --sheet-bg: #f4f6fb;
+    --scene-mix: 12%;
   }
 }
 @media (prefers-contrast: more) and (prefers-color-scheme: dark) {
   :root {
-    --label-2: rgba(235, 235, 245, 0.85);
-    --separator: rgba(140, 140, 146, 0.7);
-    --glass-bg: rgba(44, 44, 46, 0.98);
-    --glass-edge: rgba(255, 255, 255, 0.3);
+    --label-2: #d4d9e6;
+    --label-3: #b0b7c8;
+    --separator: rgba(210, 222, 255, 0.4);
+    --surface-rim: inset 0 0 0 1px rgba(255, 255, 255, 0.36);
+    --glass-bg: rgba(30, 34, 46, 0.98);
+    --glass-bg-strong: #1a1e28;
+    --glass-edge: rgba(255, 255, 255, 0.34);
+    --sheet-bg: #12151e;
   }
 }
 @media (prefers-reduced-transparency: reduce) {
   :root {
-    --glass-bg: var(--bg-elevated);
-    --glass-bg-strong: var(--bg-elevated);
-    --sheet-bg: var(--bg);
+    --glass-bg: var(--surface);
+    --glass-bg-strong: var(--surface);
+    --glass-selected: var(--fill-2);
+    --sheet-bg: var(--panel);
+    --sheet-surface: var(--sheet-surface-solid);
+    --nav-fade: var(--panel);
     --glass-blur: 0px;
+    --scene-mix: 0%;
   }
 }
 
-/* Category colors: data-color="orange" → --cat */
+/* Category colours: data-color="orange" → --cat */
 [data-color="red"] { --cat: var(--c-red); }
 [data-color="orange"] { --cat: var(--c-orange); }
 [data-color="yellow"] { --cat: var(--c-yellow); }
